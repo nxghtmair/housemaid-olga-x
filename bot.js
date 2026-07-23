@@ -1,3 +1,14 @@
+// Debug logy – aby Render konečně ukázal chybu
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT ERROR:", err);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED PROMISE:", err);
+});
+
+console.log("Bot.js se spustil, pokouším se přihlásit...");
+
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const client = new Client({

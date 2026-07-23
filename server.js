@@ -15,7 +15,7 @@ app.listen(PORT, () => {
 
 // Keep-alive ping every 5 minutes
 setInterval(() => {
-  fetch("https://YOUR-RENDER-URL.onrender.com")
+  fetch("https://housemaid-olga-x.onrender.com/")
     .then(() => console.log("Keep-alive ping sent"))
     .catch(err => console.error("Ping failed:", err));
 }, 5 * 60 * 1000);
