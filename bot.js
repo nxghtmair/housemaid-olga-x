@@ -52,7 +52,7 @@ client.once("ready", async () => {
       activities: [
         {
           name: "⇢ ˗ˏˋ yet to come bitches ࿐ྂ",
-          type: 2
+          type: 1
         }
       ]
     });
@@ -183,9 +183,8 @@ client.on("interactionCreate", async (interaction) => {
         .setDescription(description)
         .setColor("#ED0000")
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-        .addFields(
-  { name: "Announcer", value: announcer, inline: false }
-)
+        
+  
 
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
@@ -198,10 +197,29 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      await channel.send({
-        content: ping,
-        embeds: [embed]
-      });
+      const announcer = `<@${interaction.user.id}>`;
+
+const embed = new EmbedBuilder()
+  .setTitle(title)
+  .setDescription(description)
+  .setColor("#ED0000")
+  .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+  .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+const announcerComponent = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId("announcer_display")
+    .setLabel(`Announcer: ${interaction.user.username}`)
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(true)
+);
+
+await channel.send({
+  content: ping,
+  embeds: [embed],
+  components: [announcerComponent]
+});
+
 
       const confirmEmbed = new EmbedBuilder()
         .setColor("#00FF00")
