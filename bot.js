@@ -48,11 +48,11 @@ client.once("ready", async () => {
 
   try {
     await client.user.setPresence({
-      status: "online",
+      status: "dnd",
       activities: [
         {
-          name: "⇢ ˗ˏˋ Olga family: Season 4 ࿐ྂ",
-          type: 0
+          name: "⇢ ˗ˏˋ yet to come bitches ࿐ྂ",
+          type: 2
         }
       ]
     });
@@ -184,9 +184,9 @@ client.on("interactionCreate", async (interaction) => {
         .setColor("#ED0000")
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .addFields(
-          { name: "announcer", value: announcer, inline: false },
-          { name: "interaction", value: `announcer: ${announcer}`, inline: false }
-        )
+  { name: "Announcer", value: announcer, inline: false }
+)
+
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
       const channel = await interaction.client.channels.fetch(ANNOUNCE_CHANNEL).catch(() => null);
