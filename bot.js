@@ -11,6 +11,7 @@ process.on("unhandledRejection", async (err) => {
 
 console.log("Bot.js se spustil, pokouším se přihlásit...");
 
+// STATUS SYSTEM CONFIG
 let statusConfig = {
   channelId: null,
   messageId: null,
@@ -20,6 +21,7 @@ let statusConfig = {
   image: null
 };
 
+// STATUS SYSTEM EDIT FUNCTION
 async function updateStatus(type) {
   if (!statusConfig.channelId || !statusConfig.messageId) return;
 
@@ -33,8 +35,8 @@ async function updateStatus(type) {
   if (type === "operational") text = statusConfig.operational;
   if (type === "error") text = statusConfig.error;
   if (type === "shutdown") text = statusConfig.shutdown;
-
-  const { EmbedBuilder } = require("discord.js");
+  if (type === "locked") text = "🔒 bot is locked bitch";
+  if (type === "unlocked") text = statusConfig.operational;
 
   const embed = new EmbedBuilder()
     .setColor("#ED0000")
@@ -99,6 +101,9 @@ const picSubmitUsers = new Set();
 // READY – presence + slash commands + deadchat interval
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  // set operational status on startup
+  await updateStatus("operational");
 
   try {
     await client.user.setPresence({
@@ -249,11 +254,15 @@ client.on("interactionCreate", async (interaction) => {
   try {
     // bot lock: ignore everyone except master
     if (botLocked && interaction.user.id !== BOT_MASTER) {
+      await updateStatus("locked");
       return;
     }
 
-    // modal submit for status system
+    // ===========================
+    // MODAL SUBMIT – STATUS SYSTEM
+    // ===========================
     if (interaction.isModalSubmit() && interaction.customId === "status_modal") {
+
       const channelId = interaction.fields.getTextInputValue("channel");
       const operational = interaction.fields.getTextInputValue("operational");
       const error = interaction.fields.getTextInputValue("error");
@@ -267,11 +276,13 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
+      // uložíme konfiguraci
       statusConfig.channelId = channelId;
       statusConfig.operational = operational;
       statusConfig.error = error;
       statusConfig.shutdown = shutdown;
 
+      // vytvoříme embed
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
         .setTitle("System status")
@@ -282,6 +293,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const msg = await channel.send({ embeds: [embed] });
 
+      // uložíme messageId
       statusConfig.messageId = msg.id;
 
       return interaction.reply({
@@ -290,12 +302,16 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // slash commands
+    // ===========================
+    // SLASH COMMANDS
+    // ===========================
     if (!interaction.isChatInputCommand()) return;
 
     const guild = interaction.guild;
 
-    // /cmd – list commands (role mentions, readable)
+    // ===========================
+    // /cmd – command list
+    // ===========================
     if (interaction.commandName === "cmd") {
       const embed = new EmbedBuilder()
         .setTitle("Command list – Page 1/1")
@@ -304,31 +320,31 @@ client.on("interactionCreate", async (interaction) => {
           [
             "**/announcement**",
             "• perms: <@&" + PERMISSION_ROLE + ">",
-            "• usage: `/announcement title description ping` (everyone / events / none)",
+            "• usage: `/announcement title description ping`",
             "",
             "**/deadchat**",
             "• perms: <@&" + PERMISSION_ROLE + ">",
-            "• usage: `/deadchat mode` (on / off)",
+            "• usage: `/deadchat on` / `/deadchat off`",
             "",
             "**/deratization start / end**",
             "• perms: admin",
-            "• usage: `/deratization start` (locks this channel), `/deratization end` (unlocks)",
+            "• usage: locks/unlocks current channel",
             "",
             "**/pic submit**",
             "• perms: none",
-            "• usage: `/pic submit` → bot DM → send pic",
+            "• usage: DM → send pic",
             "",
             "**/statuschannel set**",
             "• perms: admin",
-            "• usage: `/statuschannel set` → modal → channel ID + messages + optional image",
+            "• usage: modal → set operational/error/shutdown",
             "",
             "**/shutdown**",
             "• perms: admin",
-            "• usage: `/shutdown` → sets system to shutdown message",
+            "• usage: sets system to shutdown",
             "",
             "**/bot lock / unlock**",
             "• perms: only master (`" + BOT_MASTER + "`)",
-            "• usage: `/bot lock`, `/bot unlock`"
+            "• usage: locks/unlocks bot"
           ].join("\n")
         )
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
@@ -336,20 +352,13 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    // ===========================
     // /deratization
+    // ===========================
     if (interaction.commandName === "deratization") {
       const sub = interaction.options.getSubcommand();
 
-      let member;
-      try {
-        member = await guild.members.fetch(interaction.user.id);
-      } catch (err) {
-        return interaction.reply({
-          content: "cant fetch you bitch",
-          ephemeral: true
-        });
-      }
-
+      let member = await guild.members.fetch(interaction.user.id);
       if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
           content: "nice try bitch, but ur a bit too young for that.",
@@ -364,9 +373,7 @@ client.on("interactionCreate", async (interaction) => {
           SendMessages: false
         });
 
-        return interaction.reply({
-          content: "🔒 deratization started bitch",
-        });
+        return interaction.reply("🔒 deratization started bitch");
       }
 
       if (sub === "end") {
@@ -374,13 +381,13 @@ client.on("interactionCreate", async (interaction) => {
           SendMessages: true
         });
 
-        return interaction.reply({
-          content: "🔓 deratization ended bitch",
-        });
+        return interaction.reply("🔓 deratization ended bitch");
       }
     }
 
+    // ===========================
     // /pic submit
+    // ===========================
     if (interaction.commandName === "pic") {
       const sub = interaction.options.getSubcommand();
 
@@ -409,20 +416,13 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+    // ===========================
     // /statuschannel set
+    // ===========================
     if (interaction.commandName === "statuschannel") {
       const sub = interaction.options.getSubcommand();
 
-      let member;
-      try {
-        member = await guild.members.fetch(interaction.user.id);
-      } catch (err) {
-        return interaction.reply({
-          content: "cant fetch you bitch",
-          ephemeral: true
-        });
-      }
-
+      let member = await guild.members.fetch(interaction.user.id);
       if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
           content: "nice try bitch, but ur a bit too young for that.",
@@ -473,18 +473,11 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+    // ===========================
     // /shutdown
+    // ===========================
     if (interaction.commandName === "shutdown") {
-      let member;
-      try {
-        member = await guild.members.fetch(interaction.user.id);
-      } catch (err) {
-        return interaction.reply({
-          content: "cant fetch you bitch",
-          ephemeral: true
-        });
-      }
-
+      let member = await guild.members.fetch(interaction.user.id);
       if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
           content: "nice try bitch, but ur a bit too young for that.",
@@ -497,7 +490,9 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply("⛔ shutdown activated bitch");
     }
 
+    // ===========================
     // /bot lock / unlock
+    // ===========================
     if (interaction.commandName === "bot") {
       const sub = interaction.options.getSubcommand();
 
@@ -510,10 +505,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         botLocked = true;
+        await updateStatus("locked");
 
-        return interaction.reply({
-          content: "🔒 bot locked bitch"
-        });
+        return interaction.reply("🔒 bot locked bitch");
       }
 
       if (sub === "unlock") {
@@ -525,24 +519,17 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         botLocked = false;
+        await updateStatus("unlocked");
 
-        return interaction.reply({
-          content: "🔓 bot unlocked bitch"
-        });
+        return interaction.reply("🔓 bot unlocked bitch");
       }
     }
 
+    // ===========================
     // /announcement
+    // ===========================
     if (interaction.commandName === "announcement") {
-      let member;
-      try {
-        member = await guild.members.fetch(interaction.user.id);
-      } catch (err) {
-        return interaction.reply({
-          content: "cant fetch you bitch",
-          ephemeral: true
-        });
-      }
+      let member = await guild.members.fetch(interaction.user.id);
 
       if (!member.roles.cache.has(PERMISSION_ROLE)) {
         const errorEmbed = new EmbedBuilder()
@@ -608,6 +595,7 @@ client.on("interactionCreate", async (interaction) => {
 
   } catch (err) {
     console.error("interaction error:", err);
+    await updateStatus("error");
 
     if (interaction.replied || interaction.deferred) {
       return interaction.followUp({
@@ -671,6 +659,7 @@ client.on("messageCreate", async (msg) => {
 
   } catch (err) {
     console.error("DM pic submit error:", err);
+    await updateStatus("error");
   }
 });
 
