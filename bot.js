@@ -1,4 +1,6 @@
-// Debug logy – aby Render konečně ukázal chybu
+// ===============================
+// ERROR LOGGING + STATUS UPDATE
+// ===============================
 process.on("uncaughtException", async (err) => {
   console.error("UNCAUGHT ERROR:", err);
   await updateStatus("error");
@@ -11,7 +13,9 @@ process.on("unhandledRejection", async (err) => {
 
 console.log("Bot.js se spustil, pokouším se přihlásit...");
 
+// ===============================
 // STATUS SYSTEM CONFIG
+// ===============================
 let statusConfig = {
   channelId: null,
   messageId: null,
@@ -21,7 +25,31 @@ let statusConfig = {
   image: null
 };
 
+// ===============================
+// DAILY STREAK (LOAD FROM FILE)
+// ===============================
+const fs = require("fs");
+
+let dailyStreak = 0;
+
+// load streak if exists
+try {
+  if (fs.existsSync("streak.json")) {
+    const data = JSON.parse(fs.readFileSync("streak.json", "utf8"));
+    dailyStreak = data.dailyStreak || 0;
+  }
+} catch (err) {
+  console.error("Failed to load streak:", err);
+}
+
+// save streak
+function saveStreak() {
+  fs.writeFileSync("streak.json", JSON.stringify({ dailyStreak }));
+}
+
+// ===============================
 // STATUS SYSTEM EDIT FUNCTION
+// ===============================
 async function updateStatus(type) {
   if (!statusConfig.channelId || !statusConfig.messageId) return;
 
@@ -49,6 +77,9 @@ async function updateStatus(type) {
   await msg.edit({ embeds: [embed] });
 }
 
+// ===============================
+// DISCORD IMPORTS
+// ===============================
 const {
   Client,
   GatewayIntentBits,
@@ -63,12 +94,17 @@ const {
   PermissionsBitField
 } = require("discord.js");
 
-// TOKEN check
+// ===============================
+// TOKEN CHECK
+// ===============================
 if (!process.env.TOKEN) {
   console.error("TOKEN environment variable is missing.");
   process.exit(1);
 }
 
+// ===============================
+// CLIENT
+// ===============================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -79,7 +115,9 @@ const client = new Client({
   ]
 });
 
-// IDs & config
+// ===============================
+// IDs & CONFIG
+// ===============================
 const ANNOUNCE_CHANNEL = "1513932745854816356";
 const EVENTS_ROLE = "1527338030531084498";
 const PERMISSION_ROLE = "1530115234767966340";
@@ -90,27 +128,33 @@ const DEADCHAT_INTERVAL = 5 * 60 * 1000;
 
 const PIC_CHANNEL = "1530313495906750615";
 
+const DAILY_CHANNEL = "1517175386021040138";
+const DAILY_ROLE = "1530312898939977841";
+
 const BOT_MASTER = "1193517948401373257";
 
 let deadchatEnabled = false;
 let botLocked = false;
 
-// pic submit tracking
+// ===============================
+// PIC SUBMIT TRACKING
+// ===============================
 const picSubmitUsers = new Set();
 
-// READY – presence + slash commands + deadchat interval
+// ===============================
+// READY EVENT
+// ===============================
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // set operational status on startup
   await updateStatus("operational");
 
   try {
     await client.user.setPresence({
-      status: "idle",
+      status: "dnd",
       activities: [
         {
-          name: "⇢ ˗ˏˋ Olgasm V0.5 ࿐ྂ",
+          name: "⇢ ˗ˏˋ yet to come bitches ࿐ྂ",
           type: 1
         }
       ]
@@ -119,21 +163,19 @@ client.once("ready", async () => {
     console.error("Presence error:", err);
   }
 
+  // ===============================
+  // REGISTER SLASH COMMANDS
+  // ===============================
   try {
     await client.application.commands.set([
-      // announcement
       new SlashCommandBuilder()
         .setName("announcement")
         .setDescription("send an announcement bitch")
         .addStringOption(opt =>
-          opt.setName("title")
-            .setDescription("title bitch")
-            .setRequired(true)
+          opt.setName("title").setDescription("title bitch").setRequired(true)
         )
         .addStringOption(opt =>
-          opt.setName("description")
-            .setDescription("description bitch")
-            .setRequired(true)
+          opt.setName("description").setDescription("description bitch").setRequired(true)
         )
         .addStringOption(opt =>
           opt.setName("ping")
@@ -146,7 +188,6 @@ client.once("ready", async () => {
             .setRequired(true)
         ),
 
-      // deadchat
       new SlashCommandBuilder()
         .setName("deadchat")
         .setDescription("toggle deadchat bitch")
@@ -160,34 +201,21 @@ client.once("ready", async () => {
             .setRequired(true)
         ),
 
-      // cmd list
       new SlashCommandBuilder()
         .setName("cmd")
         .setDescription("show all commands bitch"),
 
-      // deratization
       new SlashCommandBuilder()
         .setName("deratization")
         .setDescription("lock/unlock channel bitch")
-        .addSubcommand(sub =>
-          sub.setName("start")
-            .setDescription("lock this channel for everyone except admins bitch")
-        )
-        .addSubcommand(sub =>
-          sub.setName("end")
-            .setDescription("unlock this channel bitch")
-        ),
+        .addSubcommand(sub => sub.setName("start").setDescription("lock channel"))
+        .addSubcommand(sub => sub.setName("end").setDescription("unlock channel")),
 
-      // pic submit
       new SlashCommandBuilder()
         .setName("pic")
         .setDescription("pic suggestion bitch")
-        .addSubcommand(sub =>
-          sub.setName("submit")
-            .setDescription("submit a pic bitch")
-        ),
+        .addSubcommand(sub => sub.setName("submit").setDescription("submit a pic bitch")),
 
-      // statuschannel set (GUI via modal + image)
       new SlashCommandBuilder()
         .setName("statuschannel")
         .setDescription("configure status system bitch")
@@ -195,45 +223,35 @@ client.once("ready", async () => {
           sub.setName("set")
             .setDescription("set status channel bitch")
             .addAttachmentOption(opt =>
-              opt.setName("image")
-                .setDescription("optional status image bitch")
+              opt.setName("image").setDescription("optional status image bitch")
             )
         ),
 
-      // shutdown command
       new SlashCommandBuilder()
         .setName("shutdown")
         .setDescription("set system to shutdown bitch"),
 
-      // bot lock/unlock
       new SlashCommandBuilder()
         .setName("bot")
         .setDescription("lock/unlock bot bitch")
-        .addSubcommand(sub =>
-          sub.setName("lock")
-            .setDescription("lock bot for everyone except master bitch")
-        )
-        .addSubcommand(sub =>
-          sub.setName("unlock")
-            .setDescription("unlock bot bitch")
-        )
-    ]).catch(console.error);
+        .addSubcommand(sub => sub.setName("lock").setDescription("lock bot"))
+        .addSubcommand(sub => sub.setName("unlock").setDescription("unlock bot"))
+    ]);
 
     console.log("slash commands registered");
   } catch (err) {
     console.error("Command registration error:", err);
   }
 
-  // DEADCHAT LOOP – spouští se až po ready
+  // ===============================
+  // DEADCHAT LOOP
+  // ===============================
   setInterval(async () => {
     if (!deadchatEnabled) return;
 
     try {
       const channel = await client.channels.fetch(DEADCHAT_CHANNEL).catch(() => null);
-      if (!channel) {
-        console.error("Deadchat channel not found.");
-        return;
-      }
+      if (!channel) return;
 
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
@@ -248,6 +266,38 @@ client.once("ready", async () => {
       console.error("Deadchat:", err);
     }
   }, DEADCHAT_INTERVAL);
+
+  // ===============================
+  // DAILY WORDLE REMINDER (6:15 PM EST)
+  // ===============================
+  setInterval(async () => {
+    const now = new Date();
+    const estTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const hours = estTime.getHours();
+    const minutes = estTime.getMinutes();
+
+    if (hours === 18 && minutes === 15) {
+      dailyStreak++;
+      saveStreak();
+
+      const channel = await client.channels.fetch(DAILY_CHANNEL).catch(() => null);
+      if (!channel) return;
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(
+          "-burps- -grabs pen- YO YO YO, another day another wordle & connections mashup 😆! keep up the great guessing, keep your minds turned on, and the best person at the end of each month might eventually receive an award (such as nitro, etc.) (no cheating only)\n\n" +
+          `**🔥 Current Streak : ${dailyStreak}**`
+        )
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      await channel.send({
+        content: `<@&${DAILY_ROLE}>`,
+        embeds: [embed]
+      });
+    }
+
+  }, 60 * 1000);
 });
 // interaction handler
 client.on("interactionCreate", async (interaction) => {
