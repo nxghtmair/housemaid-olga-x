@@ -370,29 +370,28 @@ client.on("interactionCreate", async (interaction) => {
     // ===========================
     if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
 
-      const title = interaction.fields.getTextInputValue("embed_title");
-      const desc = interaction.fields.getTextInputValue("embed_desc");
-      const color = interaction.fields.getTextInputValue("embed_color");
-      const image = interaction.fields.getTextInputValue("embed_image");
-      const thumb = interaction.fields.getTextInputValue("embed_thumb");
-      const footer = interaction.fields.getTextInputValue("embed_footer");
+  const title = interaction.fields.getTextInputValue("embed_title");
+  const desc = interaction.fields.getTextInputValue("embed_desc");
+  const color = interaction.fields.getTextInputValue("embed_color");
+  const image = interaction.fields.getTextInputValue("embed_image");
+  const footer = interaction.fields.getTextInputValue("embed_footer");
 
-      const embed = new EmbedBuilder().setDescription(desc);
+  const embed = new EmbedBuilder().setDescription(desc);
 
-      if (title) embed.setTitle(title);
-      if (color) embed.setColor(color);
-      else embed.setColor("#ED0000");
-      if (image) embed.setImage(image);
-      if (thumb) embed.setThumbnail(thumb);
-      if (footer) embed.setFooter({ text: footer });
+  if (title) embed.setTitle(title);
+  if (color) embed.setColor(color);
+  else embed.setColor("#ED0000");
+  if (image) embed.setImage(image);
+  if (footer) embed.setFooter({ text: footer });
 
-      await interaction.channel.send({ embeds: [embed] });
+  await interaction.channel.send({ embeds: [embed] });
 
-      return interaction.reply({
-        content: "✔ embed sent bitch",
-        ephemeral: true
-      });
-    }
+  return interaction.reply({
+    content: "✔ embed sent bitch",
+    ephemeral: true
+  });
+}
+
 
     // ===========================
     // REACTION ROLES MODAL SUBMIT
