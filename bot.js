@@ -48,36 +48,6 @@ function saveStreak() {
 }
 
 // ===============================
-// STATUS SYSTEM EDIT FUNCTION
-// ===============================
-async function updateStatus(type) {
-  if (!statusConfig.channelId || !statusConfig.messageId) return;
-
-  const channel = await client.channels.fetch(statusConfig.channelId).catch(() => null);
-  if (!channel) return;
-
-  const msg = await channel.messages.fetch(statusConfig.messageId).catch(() => null);
-  if (!msg) return;
-
-  let text = "";
-  if (type === "operational") text = statusConfig.operational;
-  if (type === "error") text = statusConfig.error;
-  if (type === "shutdown") text = statusConfig.shutdown;
-  if (type === "locked") text = "🔒 bot is locked bitch";
-  if (type === "unlocked") text = statusConfig.operational;
-
-  const embed = new EmbedBuilder()
-    .setColor("#ED0000")
-    .setTitle("System status")
-    .setDescription(text)
-    .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-  if (statusConfig.image) embed.setImage(statusConfig.image);
-
-  await msg.edit({ embeds: [embed] });
-}
-
-// ===============================
 // DISCORD IMPORTS
 // ===============================
 const {
@@ -140,6 +110,36 @@ let botLocked = false;
 // PIC SUBMIT TRACKING
 // ===============================
 const picSubmitUsers = new Set();
+
+// ===============================
+// STATUS SYSTEM EDIT FUNCTION
+// ===============================
+async function updateStatus(type) {
+  if (!statusConfig.channelId || !statusConfig.messageId) return;
+
+  const channel = await client.channels.fetch(statusConfig.channelId).catch(() => null);
+  if (!channel) return;
+
+  const msg = await channel.messages.fetch(statusConfig.messageId).catch(() => null);
+  if (!msg) return;
+
+  let text = "";
+  if (type === "operational") text = statusConfig.operational;
+  if (type === "error") text = statusConfig.error;
+  if (type === "shutdown") text = statusConfig.shutdown;
+  if (type === "locked") text = "🔒 bot is locked bitch";
+  if (type === "unlocked") text = statusConfig.operational;
+
+  const embed = new EmbedBuilder()
+    .setColor("#ED0000")
+    .setTitle("System status")
+    .setDescription(text)
+    .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+  if (statusConfig.image) embed.setImage(statusConfig.image);
+
+  await msg.edit({ embeds: [embed] });
+}
 
 // ===============================
 // READY EVENT
@@ -312,7 +312,10 @@ client.once("ready", async () => {
 
   }, 60 * 1000);
 });
-// interaction handler
+
+// ===============================
+// INTERACTION HANDLER
+// ===============================
 client.on("interactionCreate", async (interaction) => {
   try {
     // bot lock: ignore everyone except master
@@ -339,13 +342,11 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // uložíme konfiguraci
       statusConfig.channelId = channelId;
       statusConfig.operational = operational;
       statusConfig.error = error;
       statusConfig.shutdown = shutdown;
 
-      // vytvoříme embed
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
         .setTitle("System status")
@@ -355,8 +356,6 @@ client.on("interactionCreate", async (interaction) => {
       if (statusConfig.image) embed.setImage(statusConfig.image);
 
       const msg = await channel.send({ embeds: [embed] });
-
-      // uložíme messageId
       statusConfig.messageId = msg.id;
 
       return interaction.reply({
@@ -368,66 +367,44 @@ client.on("interactionCreate", async (interaction) => {
     // ===========================
     // CUSTOM EMBED CREATOR MODAL SUBMIT
     // ===========================
-  if (interaction.commandName === "embed") {
-  const sub = interaction.options.getSubcommand();
+    if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
 
-  if (sub === "create") {
+      const channelsRaw = interaction.fields.getTextInputValue("embed_channels");
+      const title = interaction.fields.getTextInputValue("embed_title");
+      const desc = interaction.fields.getTextInputValue("embed_desc");
+      const color = interaction.fields.getTextInputValue("embed_color");
+      const footer = interaction.fields.getTextInputValue("embed_footer");
 
-    const modal = new ModalBuilder()
-      .setCustomId("embed_modal")
-      .setTitle("Custom Embed Creator");
+      const channelIds = channelsRaw
+        .split(",")
+        .map(id => id.trim())
+        .filter(id => id.length > 0);
 
-    const channelInput = new TextInputBuilder()
-      .setCustomId("embed_channel")
-      .setLabel("Channel ID (required)")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
+      if (channelIds.length === 0) {
+        return interaction.reply({
+          content: "no channels provided bitch",
+          ephemeral: true
+        });
+      }
 
-    const titleInput = new TextInputBuilder()
-      .setCustomId("embed_title")
-      .setLabel("Title (optional)")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(false);
+      const embed = new EmbedBuilder().setDescription(desc);
 
-    const descInput = new TextInputBuilder()
-      .setCustomId("embed_desc")
-      .setLabel("Description (required)")
-      .setStyle(TextInputStyle.Paragraph)
-      .setRequired(true);
+      if (title) embed.setTitle(title);
+      if (color) embed.setColor(color);
+      else embed.setColor("#ED0000");
+      if (footer) embed.setFooter({ text: footer });
 
-    const colorInput = new TextInputBuilder()
-      .setCustomId("embed_color")
-      .setLabel("Color HEX (optional)")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(false);
+      for (const id of channelIds) {
+        const ch = await interaction.guild.channels.fetch(id).catch(() => null);
+        if (!ch) continue;
+        await ch.send({ embeds: [embed] });
+      }
 
-    const imageInput = new TextInputBuilder()
-      .setCustomId("embed_image")
-      .setLabel("Image URL (optional)")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(false);
-
-    const footerInput = new TextInputBuilder()
-      .setCustomId("embed_footer")
-      .setLabel("Footer (optional)")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(false);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(channelInput),
-      new ActionRowBuilder().addComponents(titleInput),
-      new ActionRowBuilder().addComponents(descInput),
-      new ActionRowBuilder().addComponents(colorInput),
-      new ActionRowBuilder().addComponents(imageInput),
-      new ActionRowBuilder().addComponents(footerInput)
-    );
-
-    return interaction.showModal(modal);
-  }
-}
-
-
-
+      return interaction.reply({
+        content: "✔ embed sent bitch",
+        ephemeral: true
+      });
+    }
 
     // ===========================
     // REACTION ROLES MODAL SUBMIT
@@ -513,9 +490,7 @@ client.on("interactionCreate", async (interaction) => {
 
     const guild = interaction.guild;
 
-    // ===========================
-    // /cmd – command list
-    // ===========================
+    // /cmd
     if (interaction.commandName === "cmd") {
       const embed = new EmbedBuilder()
         .setTitle("Command list – Page 1/1")
@@ -555,9 +530,7 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ===========================
     // /rolescreate
-    // ===========================
     if (interaction.commandName === "rolescreate") {
 
       const modal = new ModalBuilder()
@@ -591,9 +564,59 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.showModal(modal);
     }
 
-    // ===========================
+    // /embed create
+    if (interaction.commandName === "embed") {
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === "create") {
+
+        const modal = new ModalBuilder()
+          .setCustomId("embed_modal")
+          .setTitle("Custom Embed Creator");
+
+        const channelsInput = new TextInputBuilder()
+          .setCustomId("embed_channels")
+          .setLabel("Channel IDs (comma-separated)")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const titleInput = new TextInputBuilder()
+          .setCustomId("embed_title")
+          .setLabel("Title (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const descInput = new TextInputBuilder()
+          .setCustomId("embed_desc")
+          .setLabel("Description (required)")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const colorInput = new TextInputBuilder()
+          .setCustomId("embed_color")
+          .setLabel("Color HEX (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const footerInput = new TextInputBuilder()
+          .setCustomId("embed_footer")
+          .setLabel("Footer (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(channelsInput),
+          new ActionRowBuilder().addComponents(titleInput),
+          new ActionRowBuilder().addComponents(descInput),
+          new ActionRowBuilder().addComponents(colorInput),
+          new ActionRowBuilder().addComponents(footerInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+    }
+
     // /deratization
-    // ===========================
     if (interaction.commandName === "deratization") {
       const sub = interaction.options.getSubcommand();
 
@@ -624,9 +647,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ===========================
     // /pic submit
-    // ===========================
     if (interaction.commandName === "pic") {
       const sub = interaction.options.getSubcommand();
 
@@ -655,9 +676,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ===========================
     // /statuschannel set
-    // ===========================
     if (interaction.commandName === "statuschannel") {
       const sub = interaction.options.getSubcommand();
 
@@ -712,9 +731,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ===========================
     // /shutdown
-    // ===========================
     if (interaction.commandName === "shutdown") {
       let member = await guild.members.fetch(interaction.user.id);
       if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -729,9 +746,7 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply("⛔ shutdown activated bitch");
     }
 
-    // ===========================
     // /bot lock / unlock
-    // ===========================
     if (interaction.commandName === "bot") {
       const sub = interaction.options.getSubcommand();
 
@@ -764,9 +779,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ===========================
     // /announcement
-    // ===========================
     if (interaction.commandName === "announcement") {
       let member = await guild.members.fetch(interaction.user.id);
 
@@ -849,19 +862,14 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
+
 // DM listener for pic submit
 client.on("messageCreate", async (msg) => {
   try {
-    // ignore guild messages
     if (msg.guild) return;
-
-    // ignore bot messages
     if (msg.author.bot) return;
-
-    // user must be in picSubmitUsers
     if (!picSubmitUsers.has(msg.author.id)) return;
 
-    // must contain an attachment
     if (!msg.attachments || msg.attachments.size === 0) {
       return msg.reply("bitch send a **picture**, not empty air");
     }
@@ -871,10 +879,8 @@ client.on("messageCreate", async (msg) => {
       return msg.reply("bitch that is **not** a picture");
     }
 
-    // remove user from waiting list
     picSubmitUsers.delete(msg.author.id);
 
-    // confirm DM
     const confirmEmbed = new EmbedBuilder()
       .setColor("#00FF00")
       .setDescription("✔ picture submitted bitch")
@@ -882,7 +888,6 @@ client.on("messageCreate", async (msg) => {
 
     await msg.reply({ embeds: [confirmEmbed] });
 
-    // post to suggestion channel
     const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
     if (!channel) return;
 
