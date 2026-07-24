@@ -368,29 +368,57 @@ client.on("interactionCreate", async (interaction) => {
     // ===========================
     // CUSTOM EMBED CREATOR MODAL SUBMIT
     // ===========================
-    if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
+  if (interaction.commandName === "embed") {
+  const sub = interaction.options.getSubcommand();
 
-  const title = interaction.fields.getTextInputValue("embed_title");
-  const desc = interaction.fields.getTextInputValue("embed_desc");
-  const color = interaction.fields.getTextInputValue("embed_color");
-  const image = interaction.fields.getTextInputValue("embed_image");
-  const footer = interaction.fields.getTextInputValue("embed_footer");
+  if (sub === "create") {
 
-  const embed = new EmbedBuilder().setDescription(desc);
+    const modal = new ModalBuilder()
+      .setCustomId("embed_modal")
+      .setTitle("Custom Embed Creator");
 
-  if (title) embed.setTitle(title);
-  if (color) embed.setColor(color);
-  else embed.setColor("#ED0000");
-  if (image) embed.setImage(image);
-  if (footer) embed.setFooter({ text: footer });
+    const titleInput = new TextInputBuilder()
+      .setCustomId("embed_title")
+      .setLabel("Title (optional)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false);
 
-  await interaction.channel.send({ embeds: [embed] });
+    const descInput = new TextInputBuilder()
+      .setCustomId("embed_desc")
+      .setLabel("Description (required)")
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true);
 
-  return interaction.reply({
-    content: "✔ embed sent bitch",
-    ephemeral: true
-  });
+    const colorInput = new TextInputBuilder()
+      .setCustomId("embed_color")
+      .setLabel("Color HEX (optional)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false);
+
+    const imageInput = new TextInputBuilder()
+      .setCustomId("embed_image")
+      .setLabel("Image URL (optional)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false);
+
+    const footerInput = new TextInputBuilder()
+      .setCustomId("embed_footer")
+      .setLabel("Footer (optional)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(titleInput),
+      new ActionRowBuilder().addComponents(descInput),
+      new ActionRowBuilder().addComponents(colorInput),
+      new ActionRowBuilder().addComponents(imageInput),
+      new ActionRowBuilder().addComponents(footerInput)
+    );
+
+    return interaction.showModal(modal);
+  }
 }
+
 
 
     // ===========================
