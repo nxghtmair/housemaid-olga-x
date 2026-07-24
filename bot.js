@@ -32,7 +32,6 @@ const fs = require("fs");
 
 let dailyStreak = 0;
 
-// load streak if exists
 try {
   if (fs.existsSync("streak.json")) {
     const data = JSON.parse(fs.readFileSync("streak.json", "utf8"));
@@ -42,7 +41,6 @@ try {
   console.error("Failed to load streak:", err);
 }
 
-// save streak
 function saveStreak() {
   fs.writeFileSync("streak.json", JSON.stringify({ dailyStreak }));
 }
@@ -106,9 +104,7 @@ const BOT_MASTER = "1193517948401373257";
 let deadchatEnabled = false;
 let botLocked = false;
 
-// ===============================
 // PIC SUBMIT TRACKING
-// ===============================
 const picSubmitUsers = new Set();
 
 // ===============================
@@ -163,9 +159,7 @@ client.once("ready", async () => {
     console.error("Presence error:", err);
   }
 
-  // ===============================
   // REGISTER SLASH COMMANDS
-  // ===============================
   try {
     await client.application.commands.set([
       new SlashCommandBuilder()
@@ -256,9 +250,7 @@ client.once("ready", async () => {
     console.error("Command registration error:", err);
   }
 
-  // ===============================
   // DEADCHAT LOOP
-  // ===============================
   setInterval(async () => {
     if (!deadchatEnabled) return;
 
@@ -280,9 +272,7 @@ client.once("ready", async () => {
     }
   }, DEADCHAT_INTERVAL);
 
-  // ===============================
   // DAILY WORDLE REMINDER (6:15 PM EST)
-  // ===============================
   setInterval(async () => {
     const now = new Date();
     const estTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -318,15 +308,12 @@ client.once("ready", async () => {
 // ===============================
 client.on("interactionCreate", async (interaction) => {
   try {
-    // bot lock: ignore everyone except master
     if (botLocked && interaction.user.id !== BOT_MASTER) {
       await updateStatus("locked");
       return;
     }
 
-    // ===========================
-    // MODAL SUBMIT – STATUS SYSTEM
-    // ===========================
+    // STATUS MODAL SUBMIT
     if (interaction.isModalSubmit() && interaction.customId === "status_modal") {
 
       const channelId = interaction.fields.getTextInputValue("channel");
@@ -364,9 +351,7 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // ===========================
-    // CUSTOM EMBED CREATOR MODAL SUBMIT
-    // ===========================
+    // EMBED CREATOR MODAL SUBMIT
     if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
 
       const channelsRaw = interaction.fields.getTextInputValue("embed_channels");
@@ -406,9 +391,7 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // ===========================
     // REACTION ROLES MODAL SUBMIT
-    // ===========================
     if (interaction.isModalSubmit() && interaction.customId === "roles_modal") {
 
       const msgId = interaction.fields.getTextInputValue("roles_msgid");
@@ -444,9 +427,7 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // ===========================
-    // BUTTON HANDLER FOR REACTION ROLES
-    // ===========================
+    // REACTION ROLES BUTTON
     if (interaction.isButton() && interaction.customId.startsWith("rr_")) {
 
       const roleId = interaction.customId.replace("rr_", "");
@@ -483,9 +464,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ===========================
     // SLASH COMMANDS
-    // ===========================
     if (!interaction.isChatInputCommand()) return;
 
     const guild = interaction.guild;
