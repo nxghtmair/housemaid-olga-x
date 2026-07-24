@@ -42,81 +42,6 @@ client.on("messageCreate", (msg) => {
 });
 const { EmbedBuilder } = require("discord.js");
 
-const PREFIX = "h!";
-const ANNOUNCE_CHANNEL = "1513932745854816356";
-const EVENTS_ROLE = "1527338030531084498";
-const PERMISSION_ROLE = "1530115234767966340";
-
-client.on("messageCreate", async (msg) => {
-  if (!msg.content.startsWith(PREFIX)) return;
-
-  const raw = msg.content.slice(PREFIX.length).trim();
-  const command = raw.split(" ")[0].toLowerCase();
-
-  // ANNOUNCEMENT COMMAND
-  if (command === "announcement") {
-
-    // remove the command name from the raw text
-    const argsText = raw.slice("announcement".length).trim();
-
-    // split by commas
-    const parts = argsText.split(",").map(p => p.trim());
-
-    // PERMISSION CHECK
-    if (!msg.member.roles.cache.has(PERMISSION_ROLE)) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription("❌ nice try bitch, but ur a bit too young for that");
-
-      return msg.channel.send({ embeds: [errorEmbed] });
-    }
-
-    // ARGUMENT CHECK
-    if (parts.length < 3) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription("❌ bitch u forgot something, use: h!announcement title, description, ping");
-
-      return msg.channel.send({ embeds: [errorEmbed] });
-    }
-
-    const title = parts[0];
-    const description = parts[1];
-    const pingType = parts[2].toLowerCase();
-
-    // PING HANDLING
-    let ping = "";
-    if (pingType === "everyone") ping = "@everyone";
-    if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
-
-    // CREATE ANNOUNCEMENT EMBED
-    const embed = new EmbedBuilder()
-      .setTitle(title)
-      .setDescription(description)
-      .setColor("#ED0000")
-      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-    // SEND TO ANNOUNCEMENT CHANNEL
-    const channel = msg.client.channels.cache.get(ANNOUNCE_CHANNEL);
-
-    await channel.send({
-      content: ping,
-      embeds: [embed]
-    });
-
-    // CONFIRM EMBED
-    const confirmEmbed = new EmbedBuilder()
-      .setColor("#00FF00")
-      .setDescription("✔ successfully sent bitch");
-
-    await msg.channel.send({ embeds: [confirmEmbed] });
-  }
-});
-
-const { EmbedBuilder } = require("discord.js");
-
-const PREFIX = "h!";
-
 const ANNOUNCE_CHANNEL = "1513932745854816356";
 const EVENTS_ROLE = "1527338030531084498";
 const PERMISSION_ROLE = "1530115234767966340";
@@ -127,53 +52,41 @@ const DEADCHAT_INTERVAL = 5 * 60 * 1000; // 5 minut
 
 let deadchatEnabled = false;
 
-// MAIN PREFIX HANDLER
-client.on("messageCreate", async (msg) => {
-  if (!msg.content.startsWith(PREFIX)) return;
+// SLASH COMMAND HANDLER
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
 
-  const raw = msg.content.slice(PREFIX.length).trim();
-  const command = raw.split(" ")[0].toLowerCase();
+  // /announcement
+  if (interaction.commandName === "announcement") {
+    const member = interaction.member;
 
-  // ANNOUNCEMENT COMMAND
-  if (command === "announcement") {
-    const argsText = raw.slice("announcement".length).trim();
-    const parts = argsText.split(",").map(p => p.trim());
-
-    // permission
-    if (!msg.member || !msg.member.roles.cache.has(PERMISSION_ROLE)) {
+    // permission check
+    if (!member || !member.roles.cache.has(PERMISSION_ROLE)) {
       const errorEmbed = new EmbedBuilder()
         .setColor("#ED0000")
-        .setDescription("❌ nice try bitch, but ur a bit too young for that");
+        .setDescription("❌ nice try bitch, but ur a bit too young for that")
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-      return msg.channel.send({ embeds: [errorEmbed] });
+      return interaction.reply({ embeds: [errorEmbed] });
     }
 
-    // args check
-    if (parts.length < 3) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription("❌ bitch u forgot something, use: h!announcement title, description, ping");
-
-      return msg.channel.send({ embeds: [errorEmbed] });
-    }
-
-    const title = parts[0];
-    const description = parts[1];
-    const pingType = parts[2].toLowerCase();
+    const title = interaction.options.getString("title");
+    const description = interaction.options.getString("description");
+    const pingType = interaction.options.getString("ping")?.toLowerCase() || "";
 
     // ping handling
     let ping = "";
     if (pingType === "everyone") ping = "@everyone";
     if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
 
-    const announcerMention = `<@${msg.author.id}>`;
+    const announcerMention = `<@${interaction.user.id}>`;
 
-    // ANNOUNCEMENT EMBED
+    // announcement embed
     const embed = new EmbedBuilder()
       .setTitle(title)
       .setDescription(description)
       .setColor("#ED0000")
-      .setThumbnail(msg.author.displayAvatarURL({ dynamic: true }))
+      .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
       .addFields(
         {
           name: "announcer",
@@ -188,7 +101,7 @@ client.on("messageCreate", async (msg) => {
       )
       .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-    const channel = msg.client.channels.cache.get(ANNOUNCE_CHANNEL);
+    const channel = interaction.client.channels.cache.get(ANNOUNCE_CHANNEL);
 
     await channel.send({
       content: ping,
@@ -197,85 +110,45 @@ client.on("messageCreate", async (msg) => {
 
     const confirmEmbed = new EmbedBuilder()
       .setColor("#00FF00")
-      .setDescription("✔ successfully sent bitch");
+      .setDescription("✔ successfully sent bitch")
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-    await msg.channel.send({ embeds: [confirmEmbed] });
+    // visible to everyone (no ephemeral)
+    await interaction.reply({ embeds: [confirmEmbed] });
   }
 
-  // DEADCHAT COMMAND
-  if (command === "deadchat") {
-    deadchatEnabled = !deadchatEnabled;
+  // /deadchat
+  if (interaction.commandName === "deadchat") {
+    const mode = interaction.options.getString("mode")?.toLowerCase();
 
-    if (deadchatEnabled) {
+    if (mode === "on") {
+      deadchatEnabled = true;
+
       const embed = new EmbedBuilder()
         .setColor("#00FF00")
         .setDescription("✔ deadchat mode activated bitch")
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-      await msg.channel.send({ embeds: [embed] });
-    } else {
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (mode === "off") {
+      deadchatEnabled = false;
+
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
         .setDescription("❌ deadchat mode deactivated bitch")
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-      await msg.channel.send({ embeds: [embed] });
+      return interaction.reply({ embeds: [embed] });
     }
-  }
-});
 
-// DEADCHAT LOOP
-setInterval(async () => {
-  if (!deadchatEnabled) return;
-
-  const channel = client.channels.cache.get(DEADCHAT_CHANNEL);
-  if (!channel) return;
-
-  const embed = new EmbedBuilder()
-    .setColor("#ED0000")
-    .setDescription(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`)
-    .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-  await channel.send({
-    content: `<@&${DEADCHAT_ROLE}>`,
-    embeds: [embed]
-  });
-
-}, DEADCHAT_INTERVAL);
-
-
-
-
-const { EmbedBuilder } = require("discord.js");
-
-let deadchatEnabled = false; // toggle state
-const DEADCHAT_ROLE = "1530138181490577558"; // role to ping
-const DEADCHAT_CHANNEL = "1513932745854816356"; // same channel as announcements
-const DEADCHAT_INTERVAL = 5 * 60 * 1000; // 5 minutes
-
-// DEADCHAT COMMAND
-client.on("messageCreate", async (msg) => {
-  if (!msg.content.startsWith("h!deadchat")) return;
-
-  // toggle
-  if (deadchatEnabled === false) {
-    deadchatEnabled = true;
-
-    const embed = new EmbedBuilder()
-      .setColor("#00FF00")
-      .setDescription("✔ deadchat mode activated bitch")
-      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-    await msg.channel.send({ embeds: [embed] });
-  } else {
-    deadchatEnabled = false;
-
-    const embed = new EmbedBuilder()
+    const errorEmbed = new EmbedBuilder()
       .setColor("#ED0000")
-      .setDescription("❌ deadchat mode deactivated bitch")
+      .setDescription("❌ bitch use mode: on or off")
       .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-    await msg.channel.send({ embeds: [embed] });
+    return interaction.reply({ embeds: [errorEmbed] });
   }
 });
 
@@ -297,8 +170,6 @@ setInterval(async () => {
   });
 
 }, DEADCHAT_INTERVAL);
-
-
 
 
 
