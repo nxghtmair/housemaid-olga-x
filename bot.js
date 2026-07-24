@@ -1,13 +1,51 @@
 // Debug logy – aby Render konečně ukázal chybu
-process.on("uncaughtException", (err) => {
+process.on("uncaughtException", async (err) => {
   console.error("UNCAUGHT ERROR:", err);
+  await updateStatus("error");
 });
 
-process.on("unhandledRejection", (err) => {
+process.on("unhandledRejection", async (err) => {
   console.error("UNHANDLED PROMISE:", err);
+  await updateStatus("error");
 });
 
 console.log("Bot.js se spustil, pokouším se přihlásit...");
+
+let statusConfig = {
+  channelId: null,
+  messageId: null,
+  operational: null,
+  error: null,
+  shutdown: null,
+  image: null
+};
+
+async function updateStatus(type) {
+  if (!statusConfig.channelId || !statusConfig.messageId) return;
+
+  const channel = await client.channels.fetch(statusConfig.channelId).catch(() => null);
+  if (!channel) return;
+
+  const msg = await channel.messages.fetch(statusConfig.messageId).catch(() => null);
+  if (!msg) return;
+
+  let text = "";
+  if (type === "operational") text = statusConfig.operational;
+  if (type === "error") text = statusConfig.error;
+  if (type === "shutdown") text = statusConfig.shutdown;
+
+  const { EmbedBuilder } = require("discord.js");
+
+  const embed = new EmbedBuilder()
+    .setColor("#ED0000")
+    .setTitle("System status")
+    .setDescription(text)
+    .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+  if (statusConfig.image) embed.setImage(statusConfig.image);
+
+  await msg.edit({ embeds: [embed] });
+}
 
 const {
   Client,
@@ -144,14 +182,23 @@ client.once("ready", async () => {
             .setDescription("submit a pic bitch")
         ),
 
-      // statuschannel set (GUI via modal)
+      // statuschannel set (GUI via modal + image)
       new SlashCommandBuilder()
         .setName("statuschannel")
-        .setDescription("set status channel bitch")
+        .setDescription("configure status system bitch")
         .addSubcommand(sub =>
           sub.setName("set")
-            .setDescription("configure status embed bitch")
+            .setDescription("set status channel bitch")
+            .addAttachmentOption(opt =>
+              opt.setName("image")
+                .setDescription("optional status image bitch")
+            )
         ),
+
+      // shutdown command
+      new SlashCommandBuilder()
+        .setName("shutdown")
+        .setDescription("set system to shutdown bitch"),
 
       // bot lock/unlock
       new SlashCommandBuilder()
@@ -202,70 +249,45 @@ client.on("interactionCreate", async (interaction) => {
   try {
     // bot lock: ignore everyone except master
     if (botLocked && interaction.user.id !== BOT_MASTER) {
-      return; // totally ignore
+      return;
     }
 
-    // modal submit for statuschannel
-    if (interaction.isModalSubmit()) {
-      if (interaction.customId === "statuschannel_modal") {
-        const channelId = interaction.fields.getTextInputValue("status_channel_id");
-        const operationalMsg = interaction.fields.getTextInputValue("status_operational");
-        const errorMsg = interaction.fields.getTextInputValue("status_error");
-        const shutdownMsg = interaction.fields.getTextInputValue("status_shutdown");
+    // modal submit for status system
+    if (interaction.isModalSubmit() && interaction.customId === "status_modal") {
+      const channelId = interaction.fields.getTextInputValue("channel");
+      const operational = interaction.fields.getTextInputValue("operational");
+      const error = interaction.fields.getTextInputValue("error");
+      const shutdown = interaction.fields.getTextInputValue("shutdown");
 
-        const guild = interaction.guild;
-        if (!guild) {
-          return interaction.reply({
-            content: "guild not found bitch",
-            ephemeral: true
-          });
-        }
-
-        let member;
-        try {
-          member = await guild.members.fetch(interaction.user.id);
-        } catch (err) {
-          console.error("Member fetch error:", err);
-          return interaction.reply({
-            content: "cant fetch you bitch",
-            ephemeral: true
-          });
-        }
-
-        if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.reply({
-            content: "nice try bitch, but ur a bit too young for that.",
-            ephemeral: true
-          });
-        }
-
-        const channel = await guild.channels.fetch(channelId).catch(() => null);
-        if (!channel) {
-          return interaction.reply({
-            content: "status channel not found bitch",
-            ephemeral: true
-          });
-        }
-
-        const embed = new EmbedBuilder()
-          .setTitle("System status")
-          .setColor("#ED0000")
-          .addFields(
-            { name: "Operational", value: operationalMsg || "N/A", inline: false },
-            { name: "Error", value: errorMsg || "N/A", inline: false },
-            { name: "Shutdown", value: shutdownMsg || "N/A", inline: false }
-          )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-        await channel.send({ embeds: [embed] });
-
+      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      if (!channel) {
         return interaction.reply({
-          content: "status channel set bitch",
+          content: "channel not found bitch",
           ephemeral: true
         });
       }
 
-      return;
+      statusConfig.channelId = channelId;
+      statusConfig.operational = operational;
+      statusConfig.error = error;
+      statusConfig.shutdown = shutdown;
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setTitle("System status")
+        .setDescription(operational)
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      if (statusConfig.image) embed.setImage(statusConfig.image);
+
+      const msg = await channel.send({ embeds: [embed] });
+
+      statusConfig.messageId = msg.id;
+
+      return interaction.reply({
+        content: "status system configured bitch",
+        ephemeral: true
+      });
     }
 
     // slash commands
@@ -273,36 +295,40 @@ client.on("interactionCreate", async (interaction) => {
 
     const guild = interaction.guild;
 
-    // /cmd – list commands
+    // /cmd – list commands (role mentions, readable)
     if (interaction.commandName === "cmd") {
       const embed = new EmbedBuilder()
-        .setTitle("Command list")
+        .setTitle("Command list – Page 1/1")
         .setColor("#ED0000")
         .setDescription(
           [
             "**/announcement**",
-            "• perms: role ID " + PERMISSION_ROLE,
-            "• usage: /announcement title description ping (everyone/events/none)",
+            "• perms: <@&" + PERMISSION_ROLE + ">",
+            "• usage: `/announcement title description ping` (everyone / events / none)",
             "",
             "**/deadchat**",
-            "• perms: role ID " + PERMISSION_ROLE,
-            "• usage: /deadchat mode (on/off)",
+            "• perms: <@&" + PERMISSION_ROLE + ">",
+            "• usage: `/deadchat mode` (on / off)",
             "",
-            "**/deratization start/end**",
+            "**/deratization start / end**",
             "• perms: admin",
-            "• usage: /deratization start (locks channel)",
+            "• usage: `/deratization start` (locks this channel), `/deratization end` (unlocks)",
             "",
             "**/pic submit**",
             "• perms: none",
-            "• usage: /pic submit (DM pic suggestion)",
+            "• usage: `/pic submit` → bot DM → send pic",
             "",
             "**/statuschannel set**",
             "• perms: admin",
-            "• usage: /statuschannel set (GUI modal)",
+            "• usage: `/statuschannel set` → modal → channel ID + messages + optional image",
             "",
-            "**/bot lock/unlock**",
-            "• perms: master only",
-            "• usage: /bot lock"
+            "**/shutdown**",
+            "• perms: admin",
+            "• usage: `/shutdown` → sets system to shutdown message",
+            "",
+            "**/bot lock / unlock**",
+            "• perms: only master (`" + BOT_MASTER + "`)",
+            "• usage: `/bot lock`, `/bot unlock`"
           ].join("\n")
         )
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
@@ -310,7 +336,7 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // /deratization start
+    // /deratization
     if (interaction.commandName === "deratization") {
       const sub = interaction.options.getSubcommand();
 
@@ -405,30 +431,33 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (sub === "set") {
+        const image = interaction.options.getAttachment("image");
+        statusConfig.image = image ? image.url : null;
+
         const modal = new ModalBuilder()
-          .setCustomId("statuschannel_modal")
-          .setTitle("Status channel config");
+          .setCustomId("status_modal")
+          .setTitle("Status system setup");
 
         const channelInput = new TextInputBuilder()
-          .setCustomId("status_channel_id")
+          .setCustomId("channel")
           .setLabel("Channel ID")
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
         const operationalInput = new TextInputBuilder()
-          .setCustomId("status_operational")
+          .setCustomId("operational")
           .setLabel("Operational message")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
         const errorInput = new TextInputBuilder()
-          .setCustomId("status_error")
+          .setCustomId("error")
           .setLabel("Error message")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
         const shutdownInput = new TextInputBuilder()
-          .setCustomId("status_shutdown")
+          .setCustomId("shutdown")
           .setLabel("Shutdown message")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
@@ -444,7 +473,31 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // /bot lock
+    // /shutdown
+    if (interaction.commandName === "shutdown") {
+      let member;
+      try {
+        member = await guild.members.fetch(interaction.user.id);
+      } catch (err) {
+        return interaction.reply({
+          content: "cant fetch you bitch",
+          ephemeral: true
+        });
+      }
+
+      if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({
+          content: "nice try bitch, but ur a bit too young for that.",
+          ephemeral: true
+        });
+      }
+
+      await updateStatus("shutdown");
+
+      return interaction.reply("⛔ shutdown activated bitch");
+    }
+
+    // /bot lock / unlock
     if (interaction.commandName === "bot") {
       const sub = interaction.options.getSubcommand();
 
@@ -552,6 +605,7 @@ client.on("interactionCreate", async (interaction) => {
         embeds: [confirmEmbed]
       });
     }
+
   } catch (err) {
     console.error("interaction error:", err);
 
