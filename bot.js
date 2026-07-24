@@ -21,7 +21,18 @@ const client = new Client({
 
 client.on("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  client.user.setPresence({
+    status: "dnd", // dnd / idle / online / invisible
+    activities: [
+      {
+        name: "The olga cctv",
+        type: 3 // Watching
+      }
+    ]
+  });
 });
+
 
 client.on("messageCreate", (msg) => {
   if (msg.content === "!ping") {
