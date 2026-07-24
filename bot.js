@@ -107,10 +107,10 @@ client.once("ready", async () => {
 
   try {
     await client.user.setPresence({
-      status: "dnd",
+      status: "idle",
       activities: [
         {
-          name: "⇢ ˗ˏˋ yet to come bitches ࿐ྂ",
+          name: "⇢ ˗ˏˋ Olgasm V0.5 ࿐ྂ",
           type: 1
         }
       ]
