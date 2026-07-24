@@ -40,9 +40,7 @@ client.on("messageCreate", (msg) => {
     msg.reply("pong");
   }
 });
-const {
-  EmbedBuilder
-} = require("discord.js");
+const { EmbedBuilder } = require("discord.js");
 
 const PREFIX = "h!";
 const ANNOUNCE_CHANNEL = "1513932745854816356";
@@ -52,11 +50,17 @@ const PERMISSION_ROLE = "1530115234767966340";
 client.on("messageCreate", async (msg) => {
   if (!msg.content.startsWith(PREFIX)) return;
 
-  const args = msg.content.slice(PREFIX.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
+  const raw = msg.content.slice(PREFIX.length).trim();
+  const command = raw.split(" ")[0].toLowerCase();
 
   // ANNOUNCEMENT COMMAND
   if (command === "announcement") {
+
+    // remove the command name from the raw text
+    const argsText = raw.slice("announcement".length).trim();
+
+    // split by commas
+    const parts = argsText.split(",").map(p => p.trim());
 
     // PERMISSION CHECK
     if (!msg.member.roles.cache.has(PERMISSION_ROLE)) {
@@ -68,17 +72,17 @@ client.on("messageCreate", async (msg) => {
     }
 
     // ARGUMENT CHECK
-    if (args.length < 3) {
+    if (parts.length < 3) {
       const errorEmbed = new EmbedBuilder()
         .setColor("#ED0000")
-        .setDescription("❌ bitch u forgot something, use: h!announcement title description ping");
+        .setDescription("❌ bitch u forgot something, use: h!announcement title, description, ping");
 
       return msg.channel.send({ embeds: [errorEmbed] });
     }
 
-    const title = args[0];
-    const description = args[1];
-    const pingType = args[2].toLowerCase();
+    const title = parts[0];
+    const description = parts[1];
+    const pingType = parts[2].toLowerCase();
 
     // PING HANDLING
     let ping = "";
@@ -108,6 +112,59 @@ client.on("messageCreate", async (msg) => {
     await msg.channel.send({ embeds: [confirmEmbed] });
   }
 });
+
+const { EmbedBuilder } = require("discord.js");
+
+let deadchatEnabled = false; // toggle state
+const DEADCHAT_ROLE = "1530138181490577558"; // role to ping
+const DEADCHAT_CHANNEL = "1513932745854816356"; // same channel as announcements
+const DEADCHAT_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+// DEADCHAT COMMAND
+client.on("messageCreate", async (msg) => {
+  if (!msg.content.startsWith("h!deadchat")) return;
+
+  // toggle
+  if (deadchatEnabled === false) {
+    deadchatEnabled = true;
+
+    const embed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setDescription("✔ deadchat mode activated bitch")
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+    await msg.channel.send({ embeds: [embed] });
+  } else {
+    deadchatEnabled = false;
+
+    const embed = new EmbedBuilder()
+      .setColor("#ED0000")
+      .setDescription("❌ deadchat mode deactivated bitch")
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+    await msg.channel.send({ embeds: [embed] });
+  }
+});
+
+// DEADCHAT LOOP
+setInterval(async () => {
+  if (!deadchatEnabled) return;
+
+  const channel = client.channels.cache.get(DEADCHAT_CHANNEL);
+  if (!channel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor("#ED0000")
+    .setDescription(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`)
+    .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+  await channel.send({
+    content: `<@&${DEADCHAT_ROLE}>`,
+    embeds: [embed]
+  });
+
+}, DEADCHAT_INTERVAL);
+
 
 
 
