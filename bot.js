@@ -32,25 +32,99 @@ client.on("ready", () => {
     ]
   });
 });
-
-
-
-client.on("messageCreate", (msg) => {
-  if (msg.content === "!ping") {
-    msg.reply("pong");
-  }
+// Debug logy – aby Render konečně ukázal chybu
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT ERROR:", err);
 });
-const { EmbedBuilder } = require("discord.js");
 
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED PROMISE:", err);
+});
+
+console.log("Bot.js se spustil, pokouším se přihlásit...");
+
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  SlashCommandBuilder
+} = require("discord.js");
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
+  ]
+});
+
+// IDs & config
 const ANNOUNCE_CHANNEL = "1513932745854816356";
 const EVENTS_ROLE = "1527338030531084498";
 const PERMISSION_ROLE = "1530115234767966340";
 
 const DEADCHAT_ROLE = "1530138181490577558";
 const DEADCHAT_CHANNEL = "1513932745854816356";
-const DEADCHAT_INTERVAL = 5 * 60 * 1000; // 5 minut
+const DEADCHAT_INTERVAL = 5 * 60 * 1000;
 
 let deadchatEnabled = false;
+
+// READY – presence + slash commands
+client.on("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+
+  client.user.setPresence({
+    status: "online",
+    activities: [
+      {
+        name: "⇢ ˗ˏˋ Olga family: Season 4 ࿐ྂ",
+        type: 0
+      }
+    ]
+  });
+
+  await client.application.commands.set([
+    new SlashCommandBuilder()
+      .setName("announcement")
+      .setDescription("send an announcement bitch")
+      .addStringOption(opt =>
+        opt.setName("title")
+          .setDescription("title bitch")
+          .setRequired(true)
+      )
+      .addStringOption(opt =>
+        opt.setName("description")
+          .setDescription("description bitch")
+          .setRequired(true)
+      )
+      .addStringOption(opt =>
+        opt.setName("ping")
+          .setDescription("ping type bitch")
+          .addChoices(
+            { name: "everyone", value: "everyone" },
+            { name: "events", value: "events" },
+            { name: "none", value: "none" }
+          )
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("deadchat")
+      .setDescription("toggle deadchat bitch")
+      .addStringOption(opt =>
+        opt.setName("mode")
+          .setDescription("on/off bitch")
+          .addChoices(
+            { name: "on", value: "on" },
+            { name: "off", value: "off" }
+          )
+          .setRequired(true)
+      )
+  ]);
+
+  console.log("slash commands registered");
+});
 
 // SLASH COMMAND HANDLER
 client.on("interactionCreate", async (interaction) => {
@@ -60,7 +134,6 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.commandName === "announcement") {
     const member = interaction.member;
 
-    // permission check
     if (!member || !member.roles.cache.has(PERMISSION_ROLE)) {
       const errorEmbed = new EmbedBuilder()
         .setColor("#ED0000")
@@ -72,32 +145,22 @@ client.on("interactionCreate", async (interaction) => {
 
     const title = interaction.options.getString("title");
     const description = interaction.options.getString("description");
-    const pingType = interaction.options.getString("ping")?.toLowerCase() || "";
+    const pingType = interaction.options.getString("ping");
 
-    // ping handling
     let ping = "";
     if (pingType === "everyone") ping = "@everyone";
     if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
 
-    const announcerMention = `<@${interaction.user.id}>`;
+    const announcer = `<@${interaction.user.id}>`;
 
-    // announcement embed
     const embed = new EmbedBuilder()
       .setTitle(title)
       .setDescription(description)
       .setColor("#ED0000")
       .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
       .addFields(
-        {
-          name: "announcer",
-          value: announcerMention,
-          inline: false
-        },
-        {
-          name: "interaction",
-          value: `announcer: ${announcerMention}`,
-          inline: false
-        }
+        { name: "announcer", value: announcer, inline: false },
+        { name: "interaction", value: `announcer: ${announcer}`, inline: false }
       )
       .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
@@ -113,13 +176,12 @@ client.on("interactionCreate", async (interaction) => {
       .setDescription("✔ successfully sent bitch")
       .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-    // visible to everyone (no ephemeral)
     await interaction.reply({ embeds: [confirmEmbed] });
   }
 
   // /deadchat
   if (interaction.commandName === "deadchat") {
-    const mode = interaction.options.getString("mode")?.toLowerCase();
+    const mode = interaction.options.getString("mode");
 
     if (mode === "on") {
       deadchatEnabled = true;
@@ -142,13 +204,6 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.reply({ embeds: [embed] });
     }
-
-    const errorEmbed = new EmbedBuilder()
-      .setColor("#ED0000")
-      .setDescription("❌ bitch use mode: on or off")
-      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-    return interaction.reply({ embeds: [errorEmbed] });
   }
 });
 
@@ -171,6 +226,9 @@ setInterval(async () => {
 
 }, DEADCHAT_INTERVAL);
 
-
-
 client.login(process.env.TOKEN);
+
+
+
+
+
