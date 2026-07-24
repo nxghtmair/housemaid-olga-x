@@ -23,15 +23,16 @@ client.on("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   client.user.setPresence({
-    status: "dnd", // dnd / idle / online / invisible
+    status: "dnd", // červené kolečko
     activities: [
       {
-        name: "The olga cctv",
-        type: 3 // Watching
+        name: "⇢ ˗ˏˋ Olga family: Season 4 ࿐ྂ",
+        type: 0 // Playing
       }
     ]
   });
 });
+
 
 
 client.on("messageCreate", (msg) => {
