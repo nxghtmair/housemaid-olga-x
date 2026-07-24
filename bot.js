@@ -13,7 +13,10 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 
 // TOKEN check
@@ -130,6 +133,7 @@ client.once("ready", async () => {
     }
   }, DEADCHAT_INTERVAL);
 });
+
 client.on("interactionCreate", async (interaction) => {
   try {
     if (!interaction.isChatInputCommand()) return;
@@ -176,16 +180,11 @@ client.on("interactionCreate", async (interaction) => {
       if (pingType === "everyone") ping = "@everyone";
       if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
 
-      const announcer = `<@${interaction.user.id}>`;
-
       const embed = new EmbedBuilder()
         .setTitle(title)
         .setDescription(description)
         .setColor("#ED0000")
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-        
-  
-
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
       const channel = await interaction.client.channels.fetch(ANNOUNCE_CHANNEL).catch(() => null);
@@ -197,36 +196,25 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      const announcer = `<@${interaction.user.id}>`;
+      const announcerComponent = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("announcer_display")
+          .setLabel(`Announcer: ${interaction.user.username}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
 
-const embed = new EmbedBuilder()
-  .setTitle(title)
-  .setDescription(description)
-  .setColor("#ED0000")
-  .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-  .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-const announcerComponent = new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId("announcer_display")
-    .setLabel(`Announcer: ${interaction.user.username}`)
-    .setStyle(ButtonStyle.Secondary)
-    .setDisabled(true)
-);
-
-await channel.send({
-  content: ping,
-  embeds: [embed],
-  components: [announcerComponent]
-});
-
+      await channel.send({
+        content: ping,
+        embeds: [embed],
+        components: [announcerComponent]
+      });
 
       const confirmEmbed = new EmbedBuilder()
         .setColor("#00FF00")
         .setDescription("✔ successfully sent bitch")
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-      // viditelné pro všechny
       await interaction.reply({
         embeds: [confirmEmbed]
       });
@@ -254,7 +242,6 @@ await channel.send({
         });
       }
 
-      // stejná permission role jako u announcement
       if (!member.roles.cache.has(PERMISSION_ROLE)) {
         const errorEmbed = new EmbedBuilder()
           .setColor("#ED0000")
@@ -321,6 +308,7 @@ await channel.send({
     }
   }
 });
+
 client.login(process.env.TOKEN)
   .then(() => console.log("Logging in..."))
   .catch(err => {
