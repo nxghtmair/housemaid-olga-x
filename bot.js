@@ -16,7 +16,11 @@ const {
   SlashCommandBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  PermissionsBitField
 } = require("discord.js");
 
 // TOKEN check
@@ -30,7 +34,8 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages
   ]
 });
 
@@ -43,7 +48,15 @@ const DEADCHAT_ROLE = "1530138181490577558";
 const DEADCHAT_CHANNEL = "1513932745854816356";
 const DEADCHAT_INTERVAL = 5 * 60 * 1000;
 
+const PIC_CHANNEL = "1530313495906750615";
+
+const BOT_MASTER = "1193517948401373257";
+
 let deadchatEnabled = false;
+let botLocked = false;
+
+// pic submit tracking
+const picSubmitUsers = new Set();
 
 // READY – presence + slash commands + deadchat interval
 client.once("ready", async () => {
@@ -65,6 +78,7 @@ client.once("ready", async () => {
 
   try {
     await client.application.commands.set([
+      // announcement
       new SlashCommandBuilder()
         .setName("announcement")
         .setDescription("send an announcement bitch")
@@ -89,6 +103,7 @@ client.once("ready", async () => {
             .setRequired(true)
         ),
 
+      // deadchat
       new SlashCommandBuilder()
         .setName("deadchat")
         .setDescription("toggle deadchat bitch")
@@ -100,6 +115,55 @@ client.once("ready", async () => {
               { name: "off", value: "off" }
             )
             .setRequired(true)
+        ),
+
+      // cmd list
+      new SlashCommandBuilder()
+        .setName("cmd")
+        .setDescription("show all commands bitch"),
+
+      // deratization
+      new SlashCommandBuilder()
+        .setName("deratization")
+        .setDescription("lock/unlock channel bitch")
+        .addSubcommand(sub =>
+          sub.setName("start")
+            .setDescription("lock this channel for everyone except admins bitch")
+        )
+        .addSubcommand(sub =>
+          sub.setName("end")
+            .setDescription("unlock this channel bitch")
+        ),
+
+      // pic submit
+      new SlashCommandBuilder()
+        .setName("pic")
+        .setDescription("pic suggestion bitch")
+        .addSubcommand(sub =>
+          sub.setName("submit")
+            .setDescription("submit a pic bitch")
+        ),
+
+      // statuschannel set (GUI via modal)
+      new SlashCommandBuilder()
+        .setName("statuschannel")
+        .setDescription("set status channel bitch")
+        .addSubcommand(sub =>
+          sub.setName("set")
+            .setDescription("configure status embed bitch")
+        ),
+
+      // bot lock/unlock
+      new SlashCommandBuilder()
+        .setName("bot")
+        .setDescription("lock/unlock bot bitch")
+        .addSubcommand(sub =>
+          sub.setName("lock")
+            .setDescription("lock bot for everyone except master bitch")
+        )
+        .addSubcommand(sub =>
+          sub.setName("unlock")
+            .setDescription("unlock bot bitch")
         )
     ]).catch(console.error);
 
@@ -133,27 +197,294 @@ client.once("ready", async () => {
     }
   }, DEADCHAT_INTERVAL);
 });
-
+// interaction handler
 client.on("interactionCreate", async (interaction) => {
   try {
-    if (!interaction.isChatInputCommand()) return;
+    // bot lock: ignore everyone except master
+    if (botLocked && interaction.user.id !== BOT_MASTER) {
+      return; // totally ignore
+    }
 
-    // /announcement
-    if (interaction.commandName === "announcement") {
-      const guild = interaction.guild;
+    // modal submit for statuschannel
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === "statuschannel_modal") {
+        const channelId = interaction.fields.getTextInputValue("status_channel_id");
+        const operationalMsg = interaction.fields.getTextInputValue("status_operational");
+        const errorMsg = interaction.fields.getTextInputValue("status_error");
+        const shutdownMsg = interaction.fields.getTextInputValue("status_shutdown");
 
-      if (!guild) {
+        const guild = interaction.guild;
+        if (!guild) {
+          return interaction.reply({
+            content: "guild not found bitch",
+            ephemeral: true
+          });
+        }
+
+        let member;
+        try {
+          member = await guild.members.fetch(interaction.user.id);
+        } catch (err) {
+          console.error("Member fetch error:", err);
+          return interaction.reply({
+            content: "cant fetch you bitch",
+            ephemeral: true
+          });
+        }
+
+        if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return interaction.reply({
+            content: "nice try bitch, but ur a bit too young for that.",
+            ephemeral: true
+          });
+        }
+
+        const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel) {
+          return interaction.reply({
+            content: "status channel not found bitch",
+            ephemeral: true
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle("System status")
+          .setColor("#ED0000")
+          .addFields(
+            { name: "Operational", value: operationalMsg || "N/A", inline: false },
+            { name: "Error", value: errorMsg || "N/A", inline: false },
+            { name: "Shutdown", value: shutdownMsg || "N/A", inline: false }
+          )
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+        await channel.send({ embeds: [embed] });
+
         return interaction.reply({
-          content: "guild not found bitch",
+          content: "status channel set bitch",
           ephemeral: true
         });
       }
+
+      return;
+    }
+
+    // slash commands
+    if (!interaction.isChatInputCommand()) return;
+
+    const guild = interaction.guild;
+
+    // /cmd – list commands
+    if (interaction.commandName === "cmd") {
+      const embed = new EmbedBuilder()
+        .setTitle("Command list")
+        .setColor("#ED0000")
+        .setDescription(
+          [
+            "**/announcement**",
+            "• perms: role ID " + PERMISSION_ROLE,
+            "• usage: /announcement title description ping (everyone/events/none)",
+            "",
+            "**/deadchat**",
+            "• perms: role ID " + PERMISSION_ROLE,
+            "• usage: /deadchat mode (on/off)",
+            "",
+            "**/deratization start/end**",
+            "• perms: admin",
+            "• usage: /deratization start (locks channel)",
+            "",
+            "**/pic submit**",
+            "• perms: none",
+            "• usage: /pic submit (DM pic suggestion)",
+            "",
+            "**/statuschannel set**",
+            "• perms: admin",
+            "• usage: /statuschannel set (GUI modal)",
+            "",
+            "**/bot lock/unlock**",
+            "• perms: master only",
+            "• usage: /bot lock"
+          ].join("\n")
+        )
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // /deratization start
+    if (interaction.commandName === "deratization") {
+      const sub = interaction.options.getSubcommand();
 
       let member;
       try {
         member = await guild.members.fetch(interaction.user.id);
       } catch (err) {
-        console.error("Member fetch error:", err);
+        return interaction.reply({
+          content: "cant fetch you bitch",
+          ephemeral: true
+        });
+      }
+
+      if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({
+          content: "nice try bitch, but ur a bit too young for that.",
+          ephemeral: true
+        });
+      }
+
+      const channel = interaction.channel;
+
+      if (sub === "start") {
+        await channel.permissionOverwrites.edit(guild.roles.everyone, {
+          SendMessages: false
+        });
+
+        return interaction.reply({
+          content: "🔒 deratization started bitch",
+        });
+      }
+
+      if (sub === "end") {
+        await channel.permissionOverwrites.edit(guild.roles.everyone, {
+          SendMessages: true
+        });
+
+        return interaction.reply({
+          content: "🔓 deratization ended bitch",
+        });
+      }
+    }
+
+    // /pic submit
+    if (interaction.commandName === "pic") {
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === "submit") {
+        picSubmitUsers.add(interaction.user.id);
+
+        const dmEmbed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Pic submission")
+          .setDescription("send me the pic bitch, right here in DM")
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+        try {
+          await interaction.user.send({ embeds: [dmEmbed] });
+        } catch (err) {
+          return interaction.reply({
+            content: "cant DM you bitch, enable DMs",
+            ephemeral: true
+          });
+        }
+
+        return interaction.reply({
+          content: "check your DMs bitch",
+          ephemeral: true
+        });
+      }
+    }
+
+    // /statuschannel set
+    if (interaction.commandName === "statuschannel") {
+      const sub = interaction.options.getSubcommand();
+
+      let member;
+      try {
+        member = await guild.members.fetch(interaction.user.id);
+      } catch (err) {
+        return interaction.reply({
+          content: "cant fetch you bitch",
+          ephemeral: true
+        });
+      }
+
+      if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({
+          content: "nice try bitch, but ur a bit too young for that.",
+          ephemeral: true
+        });
+      }
+
+      if (sub === "set") {
+        const modal = new ModalBuilder()
+          .setCustomId("statuschannel_modal")
+          .setTitle("Status channel config");
+
+        const channelInput = new TextInputBuilder()
+          .setCustomId("status_channel_id")
+          .setLabel("Channel ID")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const operationalInput = new TextInputBuilder()
+          .setCustomId("status_operational")
+          .setLabel("Operational message")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const errorInput = new TextInputBuilder()
+          .setCustomId("status_error")
+          .setLabel("Error message")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const shutdownInput = new TextInputBuilder()
+          .setCustomId("status_shutdown")
+          .setLabel("Shutdown message")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(channelInput),
+          new ActionRowBuilder().addComponents(operationalInput),
+          new ActionRowBuilder().addComponents(errorInput),
+          new ActionRowBuilder().addComponents(shutdownInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+    }
+
+    // /bot lock
+    if (interaction.commandName === "bot") {
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === "lock") {
+        if (interaction.user.id !== BOT_MASTER) {
+          return interaction.reply({
+            content: "only master can lock me bitch",
+            ephemeral: true
+          });
+        }
+
+        botLocked = true;
+
+        return interaction.reply({
+          content: "🔒 bot locked bitch"
+        });
+      }
+
+      if (sub === "unlock") {
+        if (interaction.user.id !== BOT_MASTER) {
+          return interaction.reply({
+            content: "only master can unlock me bitch",
+            ephemeral: true
+          });
+        }
+
+        botLocked = false;
+
+        return interaction.reply({
+          content: "🔓 bot unlocked bitch"
+        });
+      }
+    }
+
+    // /announcement
+    if (interaction.commandName === "announcement") {
+      let member;
+      try {
+        member = await guild.members.fetch(interaction.user.id);
+      } catch (err) {
         return interaction.reply({
           content: "cant fetch you bitch",
           ephemeral: true
@@ -196,10 +527,12 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
+      const serverNickname = member.displayName;
+
       const announcerComponent = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId("announcer_display")
-          .setLabel(`Announcer: ${interaction.user.username}`)
+          .setLabel(`Announcer: ${serverNickname}`)
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(true)
       );
@@ -219,79 +552,6 @@ client.on("interactionCreate", async (interaction) => {
         embeds: [confirmEmbed]
       });
     }
-
-    // /deadchat
-    if (interaction.commandName === "deadchat") {
-      const guild = interaction.guild;
-
-      if (!guild) {
-        return interaction.reply({
-          content: "guild not found bitch",
-          ephemeral: true
-        });
-      }
-
-      let member;
-      try {
-        member = await guild.members.fetch(interaction.user.id);
-      } catch (err) {
-        console.error("Member fetch error:", err);
-        return interaction.reply({
-          content: "cant fetch you bitch",
-          ephemeral: true
-        });
-      }
-
-      if (!member.roles.cache.has(PERMISSION_ROLE)) {
-        const errorEmbed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription("❌ nice try bitch, but ur a bit too young for that")
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-        return interaction.reply({
-          embeds: [errorEmbed],
-          ephemeral: true
-        });
-      }
-
-      const mode = interaction.options.getString("mode");
-
-      if (mode === "on") {
-        deadchatEnabled = true;
-
-        const embed = new EmbedBuilder()
-          .setColor("#00FF00")
-          .setDescription("✔ deadchat mode activated bitch")
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-        return interaction.reply({
-          embeds: [embed]
-        });
-      }
-
-      if (mode === "off") {
-        deadchatEnabled = false;
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription("❌ deadchat mode deactivated bitch")
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-        return interaction.reply({
-          embeds: [embed]
-        });
-      }
-
-      const errorEmbed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription("❌ bitch use mode: on or off")
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-      return interaction.reply({
-        embeds: [errorEmbed],
-        ephemeral: true
-      });
-    }
   } catch (err) {
     console.error("interaction error:", err);
 
@@ -308,7 +568,59 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
+// DM listener for pic submit
+client.on("messageCreate", async (msg) => {
+  try {
+    // ignore guild messages
+    if (msg.guild) return;
 
+    // ignore bot messages
+    if (msg.author.bot) return;
+
+    // user must be in picSubmitUsers
+    if (!picSubmitUsers.has(msg.author.id)) return;
+
+    // must contain an attachment
+    if (!msg.attachments || msg.attachments.size === 0) {
+      return msg.reply("bitch send a **picture**, not empty air");
+    }
+
+    const attachment = msg.attachments.first();
+    if (!attachment.contentType || !attachment.contentType.startsWith("image")) {
+      return msg.reply("bitch that is **not** a picture");
+    }
+
+    // remove user from waiting list
+    picSubmitUsers.delete(msg.author.id);
+
+    // confirm DM
+    const confirmEmbed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setDescription("✔ picture submitted bitch")
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+    await msg.reply({ embeds: [confirmEmbed] });
+
+    // post to suggestion channel
+    const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
+    if (!channel) return;
+
+    const postEmbed = new EmbedBuilder()
+      .setColor("#ED0000")
+      .setTitle("New pic suggestion")
+      .setDescription(`suggested by <@${msg.author.id}>`)
+      .setImage(attachment.url)
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
+      .setTimestamp();
+
+    await channel.send({ embeds: [postEmbed] });
+
+  } catch (err) {
+    console.error("DM pic submit error:", err);
+  }
+});
+
+// LOGIN
 client.login(process.env.TOKEN)
   .then(() => console.log("Logging in..."))
   .catch(err => {
