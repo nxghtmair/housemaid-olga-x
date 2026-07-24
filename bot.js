@@ -377,6 +377,12 @@ client.on("interactionCreate", async (interaction) => {
       .setCustomId("embed_modal")
       .setTitle("Custom Embed Creator");
 
+    const channelInput = new TextInputBuilder()
+      .setCustomId("embed_channel")
+      .setLabel("Channel ID (required)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
     const titleInput = new TextInputBuilder()
       .setCustomId("embed_title")
       .setLabel("Title (optional)")
@@ -408,6 +414,7 @@ client.on("interactionCreate", async (interaction) => {
       .setRequired(false);
 
     modal.addComponents(
+      new ActionRowBuilder().addComponents(channelInput),
       new ActionRowBuilder().addComponents(titleInput),
       new ActionRowBuilder().addComponents(descInput),
       new ActionRowBuilder().addComponents(colorInput),
@@ -418,6 +425,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.showModal(modal);
   }
 }
+
 
 
 
