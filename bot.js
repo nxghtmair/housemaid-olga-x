@@ -151,10 +151,10 @@ client.once("ready", async () => {
 
   try {
     await client.user.setPresence({
-      status: "dnd",
+      status: "idle",
       activities: [
         {
-          name: "⇢ ˗ˏˋ yet to come bitches ࿐ྂ",
+          name: "⇢ ˗ˏˋ Olgasm; V0.5 ࿐ྂ",
           type: 1
         }
       ]
@@ -235,7 +235,20 @@ client.once("ready", async () => {
         .setName("bot")
         .setDescription("lock/unlock bot bitch")
         .addSubcommand(sub => sub.setName("lock").setDescription("lock bot"))
-        .addSubcommand(sub => sub.setName("unlock").setDescription("unlock bot"))
+        .addSubcommand(sub => sub.setName("unlock").setDescription("unlock bot")),
+
+      // EMBED CREATOR
+      new SlashCommandBuilder()
+        .setName("embed")
+        .setDescription("create a custom embed bitch")
+        .addSubcommand(sub =>
+          sub.setName("create").setDescription("create a custom embed bitch")
+        ),
+
+      // REACTION ROLES
+      new SlashCommandBuilder()
+        .setName("rolescreate")
+        .setDescription("create reaction roles bitch")
     ]);
 
     console.log("slash commands registered");
@@ -353,6 +366,112 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     // ===========================
+    // CUSTOM EMBED CREATOR MODAL SUBMIT
+    // ===========================
+    if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
+
+      const title = interaction.fields.getTextInputValue("embed_title");
+      const desc = interaction.fields.getTextInputValue("embed_desc");
+      const color = interaction.fields.getTextInputValue("embed_color");
+      const image = interaction.fields.getTextInputValue("embed_image");
+      const thumb = interaction.fields.getTextInputValue("embed_thumb");
+      const footer = interaction.fields.getTextInputValue("embed_footer");
+
+      const embed = new EmbedBuilder().setDescription(desc);
+
+      if (title) embed.setTitle(title);
+      if (color) embed.setColor(color);
+      else embed.setColor("#ED0000");
+      if (image) embed.setImage(image);
+      if (thumb) embed.setThumbnail(thumb);
+      if (footer) embed.setFooter({ text: footer });
+
+      await interaction.channel.send({ embeds: [embed] });
+
+      return interaction.reply({
+        content: "✔ embed sent bitch",
+        ephemeral: true
+      });
+    }
+
+    // ===========================
+    // REACTION ROLES MODAL SUBMIT
+    // ===========================
+    if (interaction.isModalSubmit() && interaction.customId === "roles_modal") {
+
+      const msgId = interaction.fields.getTextInputValue("roles_msgid");
+      const emoji = interaction.fields.getTextInputValue("roles_emoji");
+      const roleId = interaction.fields.getTextInputValue("roles_role");
+
+      const channel = interaction.channel;
+
+      let targetMsg;
+      try {
+        targetMsg = await channel.messages.fetch(msgId);
+      } catch (err) {
+        return interaction.reply({
+          content: "cant find that message bitch",
+          ephemeral: true
+        });
+      }
+
+      const btn = new ButtonBuilder()
+        .setCustomId(`rr_${roleId}`)
+        .setEmoji(emoji)
+        .setStyle(ButtonStyle.Secondary);
+
+      const row = new ActionRowBuilder().addComponents(btn);
+
+      await targetMsg.edit({
+        components: [row]
+      });
+
+      return interaction.reply({
+        content: "✔ reaction role added bitch",
+        ephemeral: true
+      });
+    }
+
+    // ===========================
+    // BUTTON HANDLER FOR REACTION ROLES
+    // ===========================
+    if (interaction.isButton() && interaction.customId.startsWith("rr_")) {
+
+      const roleId = interaction.customId.replace("rr_", "");
+      const role = interaction.guild.roles.cache.get(roleId);
+
+      if (!role) {
+        return interaction.reply({
+          content: "role not found bitch",
+          ephemeral: true
+        });
+      }
+
+      const member = interaction.guild.members.cache.get(interaction.user.id);
+
+      if (!member) {
+        return interaction.reply({
+          content: "cant fetch you bitch",
+          ephemeral: true
+        });
+      }
+
+      if (member.roles.cache.has(roleId)) {
+        await member.roles.remove(roleId);
+        return interaction.reply({
+          content: `✔ successfully removed <@&${roleId}>`,
+          ephemeral: true
+        });
+      } else {
+        await member.roles.add(roleId);
+        return interaction.reply({
+          content: `✔ successfully added <@&${roleId}>`,
+          ephemeral: true
+        });
+      }
+    }
+
+    // ===========================
     // SLASH COMMANDS
     // ===========================
     if (!interaction.isChatInputCommand()) return;
@@ -370,36 +489,71 @@ client.on("interactionCreate", async (interaction) => {
           [
             "**/announcement**",
             "• perms: <@&" + PERMISSION_ROLE + ">",
-            "• usage: `/announcement title description ping`",
             "",
             "**/deadchat**",
             "• perms: <@&" + PERMISSION_ROLE + ">",
-            "• usage: `/deadchat on` / `/deadchat off`",
             "",
             "**/deratization start / end**",
             "• perms: admin",
-            "• usage: locks/unlocks current channel",
             "",
             "**/pic submit**",
             "• perms: none",
-            "• usage: DM → send pic",
             "",
             "**/statuschannel set**",
             "• perms: admin",
-            "• usage: modal → set operational/error/shutdown",
             "",
             "**/shutdown**",
             "• perms: admin",
-            "• usage: sets system to shutdown",
             "",
             "**/bot lock / unlock**",
-            "• perms: only master (`" + BOT_MASTER + "`)",
-            "• usage: locks/unlocks bot"
+            "• perms: only master",
+            "",
+            "**/embed create**",
+            "• perms: admin",
+            "",
+            "**/rolescreate**",
+            "• perms: admin"
           ].join("\n")
         )
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
       return interaction.reply({ embeds: [embed] });
+    }
+
+    // ===========================
+    // /rolescreate
+    // ===========================
+    if (interaction.commandName === "rolescreate") {
+
+      const modal = new ModalBuilder()
+        .setCustomId("roles_modal")
+        .setTitle("Reaction Roles Setup");
+
+      const msgIdInput = new TextInputBuilder()
+        .setCustomId("roles_msgid")
+        .setLabel("Message ID")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const emojiInput = new TextInputBuilder()
+        .setCustomId("roles_emoji")
+        .setLabel("Emoji")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const roleInput = new TextInputBuilder()
+        .setCustomId("roles_role")
+        .setLabel("Role ID")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(msgIdInput),
+        new ActionRowBuilder().addComponents(emojiInput),
+        new ActionRowBuilder().addComponents(roleInput)
+      );
+
+      return interaction.showModal(modal);
     }
 
     // ===========================
