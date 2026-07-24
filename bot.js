@@ -41,18 +41,14 @@ client.on("messageCreate", (msg) => {
   }
 });
 const {
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  ActionRowBuilder,
-  EmbedBuilder,
-  ButtonBuilder,
-  ButtonStyle
+  EmbedBuilder
 } = require("discord.js");
 
 const PREFIX = "h!";
+const ANNOUNCE_CHANNEL = "1513932745854816356";
+const EVENTS_ROLE = "1527338030531084498";
+const PERMISSION_ROLE = "1530115234767966340";
 
-// PREFIX COMMAND HANDLER
 client.on("messageCreate", async (msg) => {
   if (!msg.content.startsWith(PREFIX)) return;
 
@@ -62,83 +58,57 @@ client.on("messageCreate", async (msg) => {
   // ANNOUNCEMENT COMMAND
   if (command === "announcement") {
 
-    // toxic maid message
-    await msg.channel.send("opening modal bitch");
-
-    // create button
-    const btn = new ButtonBuilder()
-      .setCustomId("openAnnouncementModal")
-      .setLabel("open announcement modal bitch")
-      .setStyle(ButtonStyle.Primary);
-
-    const row = new ActionRowBuilder().addComponents(btn);
-
-    await msg.channel.send({
-      content: "click the button bitch",
-      components: [row]
-    });
-  }
-});
-
-// HANDLE BUTTON + MODAL
-client.on("interactionCreate", async (interaction) => {
-
-  // BUTTON CLICK
-  if (interaction.isButton()) {
-    if (interaction.customId === "openAnnouncementModal") {
-
-      const modal = new ModalBuilder()
-        .setCustomId("announcementModal")
-        .setTitle("announcement bitch");
-
-      const titleInput = new TextInputBuilder()
-        .setCustomId("announcementTitle")
-        .setLabel("title bitch")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const descInput = new TextInputBuilder()
-        .setCustomId("announcementDescription")
-        .setLabel("description bitch")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true);
-
-      const row1 = new ActionRowBuilder().addComponents(titleInput);
-      const row2 = new ActionRowBuilder().addComponents(descInput);
-
-      modal.addComponents(row1, row2);
-
-      await interaction.showModal(modal);
-    }
-  }
-
-  // MODAL SUBMISSION
-  if (interaction.isModalSubmit()) {
-    if (interaction.customId === "announcementModal") {
-
-      const title = interaction.fields.getTextInputValue("announcementTitle");
-      const description = interaction.fields.getTextInputValue("announcementDescription");
-
-      const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(description)
+    // PERMISSION CHECK
+    if (!msg.member.roles.cache.has(PERMISSION_ROLE)) {
+      const errorEmbed = new EmbedBuilder()
         .setColor("#ED0000")
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        .setDescription("❌ nice try bitch, but ur a bit too young for that");
 
-      const channel = interaction.client.channels.cache.get("1513932745854816356");
-
-      await channel.send({
-        content: "@everyone",
-        embeds: [embed]
-      });
-
-      await interaction.reply({
-        content: "announcement sent bitch",
-        ephemeral: true
-      });
+      return msg.channel.send({ embeds: [errorEmbed] });
     }
+
+    // ARGUMENT CHECK
+    if (args.length < 3) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription("❌ bitch u forgot something, use: h!announcement title description ping");
+
+      return msg.channel.send({ embeds: [errorEmbed] });
+    }
+
+    const title = args[0];
+    const description = args[1];
+    const pingType = args[2].toLowerCase();
+
+    // PING HANDLING
+    let ping = "";
+    if (pingType === "everyone") ping = "@everyone";
+    if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
+
+    // CREATE ANNOUNCEMENT EMBED
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setDescription(description)
+      .setColor("#ED0000")
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+    // SEND TO ANNOUNCEMENT CHANNEL
+    const channel = msg.client.channels.cache.get(ANNOUNCE_CHANNEL);
+
+    await channel.send({
+      content: ping,
+      embeds: [embed]
+    });
+
+    // CONFIRM EMBED
+    const confirmEmbed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setDescription("✔ successfully sent bitch");
+
+    await msg.channel.send({ embeds: [confirmEmbed] });
   }
 });
+
 
 
 
