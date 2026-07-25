@@ -213,13 +213,68 @@ client.once("ready", async () => {
   ]);
 
   console.log("Slash commands registered.");
-});
 
+  // ===============================
+  // DEADCHAT LOOP
+  // ===============================
+  setInterval(async () => {
+    if (!deadchatEnabled) return;
+
+    try {
+      const channel = await client.channels.fetch(DEADCHAT_CHANNEL).catch(() => null);
+      if (!channel) return;
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`);
+
+      await channel.send({
+        content: `<@&${DEADCHAT_ROLE}>`,
+        embeds: [embed]
+      });
+    } catch (err) {
+      console.error("Deadchat:", err);
+    }
+  }, DEADCHAT_INTERVAL);
+
+  // ===============================
+  // DAILY WORDLE REMINDER
+  // ===============================
+  setInterval(async () => {
+    const now = new Date();
+    const estTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const hours = estTime.getHours();
+    const minutes = estTime.getMinutes();
+
+    if (hours === 18 && minutes === 15) {
+      dailyStreak++;
+      saveStreak();
+
+      const channel = await client.channels.fetch(DAILY_CHANNEL).catch(() => null);
+      if (!channel) return;
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(
+          "-burps- YO YO YO, another day another wordle 😆!\n\n" +
+          `**🔥 Current Streak : ${dailyStreak}**`
+        );
+
+      await channel.send({
+        content: `<@&${DAILY_ROLE}>`,
+        embeds: [embed]
+      });
+    }
+
+  }, 60 * 1000);
+});
 // ===============================
 // INTERACTION HANDLER
 // ===============================
 client.on("interactionCreate", async (interaction) => {
   try {
+
+    // BOT LOCK
     if (botLocked && interaction.user.id !== BOT_MASTER) return;
 
     // ===========================
@@ -308,7 +363,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     // ===========================
-    // BUTTON HANDLER FOR REACTION ROLES
+    // REACTION ROLE BUTTON HANDLER
     // ===========================
     if (interaction.isButton() && interaction.customId.startsWith("rr_")) {
 
@@ -548,7 +603,7 @@ client.on("interactionCreate", async (interaction) => {
           .setRequired(true);
 
         const operationalInput = new TextInputBuilder()
-          .setCustomCustomId("operational")
+          .setCustomId("operational")
           .setLabel("Operational message")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
@@ -569,4 +624,200 @@ client.on("interactionCreate", async (interaction) => {
           new ActionRowBuilder().addComponents(channelInput),
           new ActionRowBuilder().addComponents(operationalInput),
           new ActionRowBuilder().addComponents(errorInput),
-          new ActionRowBuilder().addComponents(shutdown)
+          new ActionRowBuilder().addComponents(shutdownInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+    }
+
+    // ===========================
+    // /shutdown
+    // ===========================
+    if (interaction.commandName === "shutdown") {
+      let member = await guild.members.fetch(interaction.user.id);
+      if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({
+          content: "no perms bitch",
+          ephemeral: true
+        });
+      }
+
+      return interaction.reply("⛔ shutdown activated bitch");
+    }
+
+    // ===========================
+    // /bot lock / unlock
+    // ===========================
+    if (interaction.commandName === "bot") {
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === "lock") {
+        if (interaction.user.id !== BOT_MASTER) {
+          return interaction.reply({
+            content: "only master can lock me bitch",
+            ephemeral: true
+          });
+        }
+
+        botLocked = true;
+
+        return interaction.reply("🔒 bot locked bitch");
+      }
+
+      if (sub === "unlock") {
+        if (interaction.user.id !== BOT_MASTER) {
+          return interaction.reply({
+            content: "only master can unlock me bitch",
+            ephemeral: true
+          });
+        }
+
+        botLocked = false;
+
+        return interaction.reply("🔓 bot unlocked bitch");
+      }
+    }
+
+    // ===========================
+    // /announcement
+    // ===========================
+    if (interaction.commandName === "announcement") {
+      let member = await guild.members.fetch(interaction.user.id);
+
+      if (!member.roles.cache.has(PERMISSION_ROLE)) {
+        const errorEmbed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription("❌ no perms bitch");
+
+        return interaction.reply({
+          embeds: [errorEmbed],
+          ephemeral: true
+        });
+      }
+
+      const title = interaction.options.getString("title");
+      const description = interaction.options.getString("description");
+      const pingType = interaction.options.getString("ping");
+
+      let ping = "";
+      if (pingType === "everyone") ping = "@everyone";
+      if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(description)
+        .setColor("#ED0000")
+        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }));
+
+      const channel = await interaction.client.channels.fetch(ANNOUNCE_CHANNEL).catch(() => null);
+
+      if (!channel) {
+        return interaction.reply({
+          content: "announcement channel not found bitch",
+          ephemeral: true
+        });
+      }
+
+      const serverNickname = member.displayName;
+
+      const announcerComponent = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("announcer_display")
+          .setLabel(`Announcer: ${serverNickname}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
+
+      await channel.send({
+        content: ping,
+        embeds: [embed],
+        components: [announcerComponent]
+      });
+
+      const confirmEmbed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setDescription("✔ successfully sent bitch");
+
+      await interaction.reply({
+        embeds: [confirmEmbed]
+      });
+    }
+
+  } catch (err) {
+    console.error("interaction error:", err);
+
+    if (interaction.replied || interaction.deferred) {
+      return interaction.followUp({
+        content: "something went wrong bitch",
+        ephemeral: true
+      });
+    } else {
+      return interaction.reply({
+        content: "something went wrong bitch",
+        ephemeral: true
+      });
+    }
+  }
+});
+// ===============================
+// DM PIC SUBMIT LISTENER
+// ===============================
+client.on("messageCreate", async (msg) => {
+  try {
+    // ignore guild messages
+    if (msg.guild) return;
+
+    // ignore bot messages
+    if (msg.author.bot) return;
+
+    // user must be in picSubmitUsers
+    if (!picSubmitUsers.has(msg.author.id)) return;
+
+    // must contain an attachment
+    if (!msg.attachments || msg.attachments.size === 0) {
+      return msg.reply("bitch send a **picture**, not empty air");
+    }
+
+    const attachment = msg.attachments.first();
+    if (!attachment.contentType || !attachment.contentType.startsWith("image")) {
+      return msg.reply("bitch that is **not** a picture");
+    }
+
+    // remove user from waiting list
+    picSubmitUsers.delete(msg.author.id);
+
+    // confirm DM
+    const confirmEmbed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setDescription("✔ picture submitted bitch");
+
+    await msg.reply({ embeds: [confirmEmbed] });
+
+    // post to suggestion channel
+    const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
+    if (!channel) return;
+
+    const postEmbed = new EmbedBuilder()
+      .setColor("#ED0000")
+      .setTitle("New pic suggestion")
+      .setDescription(`suggested by <@${msg.author.id}>`)
+      .setImage(attachment.url)
+      .setTimestamp();
+
+    await channel.send({ embeds: [postEmbed] });
+
+  } catch (err) {
+    console.error("DM pic submit error:", err);
+  }
+});
+
+// ===============================
+// LOGIN
+// ===============================
+client.login(process.env.TOKEN)
+  .then(() => console.log("Logging in..."))
+  .catch(err => {
+    console.error("LOGIN FAILED");
+    console.error(err);
+  });
