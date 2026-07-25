@@ -124,6 +124,7 @@ const BOT_MASTER = "1193517948401373257";
 const LEVEL_CHANNEL = "1517175386021040138";
 
 const CHAT_XP_CHANNEL = "1513932845922385920";
+const EXTRA_XP_CHANNEL = "1530116858760663151";
 
 const ROLE_TOP = "1530588478352654407";
 const ROLE_2 = "1530588534606528632";
@@ -148,6 +149,8 @@ let botLocked = false;
 let roastEnabled = false;
 
 const picSubmitUsers = new Set();
+
+const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
 
 // ===============================
 // HELPERS
@@ -201,13 +204,41 @@ function getLevelIndexFromXp(xp) {
   return idx;
 }
 
+function buildProgressBar(currentXp, currentThresholdXp, nextThresholdXp) {
+  if (nextThresholdXp === null) {
+    return "🟢🟢🟢🟢🟢🟢🟢🟢 100%";
+  }
+  const span = nextThresholdXp - currentThresholdXp;
+  const gained = currentXp - currentThresholdXp;
+  let percent = span <= 0 ? 1 : gained / span;
+  if (percent < 0) percent = 0;
+  if (percent > 1) percent = 1;
+  const segments = 8;
+  const perSegment = 1 / segments;
+  let bar = "";
+  for (let i = 0; i < segments; i++) {
+    const threshold = perSegment * (i + 1);
+    bar += percent >= threshold ? "🟢" : "🔴";
+  }
+  const pctDisplay = Math.round(percent * 100);
+  return `${bar} ${pctDisplay}%`;
+}
+
+function makeEmbed(description, title = null) {
+  const embed = new EmbedBuilder()
+    .setColor("#ED0000")
+    .setDescription(description)
+    .setFooter({ text: FOOTER_TEXT });
+  if (title) embed.setTitle(title);
+  return embed;
+}
+
 // ===============================
 // READY
 // ===============================
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // XP is NO LONGER wiped — only saved
   saveJson("xpData.json", xpData);
 
   await client.user.setPresence({
@@ -215,9 +246,7 @@ client.once("ready", async () => {
     activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.7 ࿐ྂ", type: 1 }]
   });
 
-  // ===============================
   // SLASH COMMANDS
-  // ===============================
   await client.application.commands.set([
     new SlashCommandBuilder()
       .setName("announcement")
@@ -263,7 +292,6 @@ client.once("ready", async () => {
       .addSubcommand(s => s.setName("lock").setDescription("lock bot"))
       .addSubcommand(s => s.setName("unlock").setDescription("unlock bot")),
 
-    // EMBED COMMANDS
     new SlashCommandBuilder()
       .setName("embed")
       .setDescription("embed tools")
@@ -392,7 +420,7 @@ client.once("ready", async () => {
 
     new SlashCommandBuilder()
       .setName("stats")
-      .setDescription("show your stats"),
+      .setDescription("show your xp stats"),
 
     new SlashCommandBuilder()
       .setName("xp")
@@ -441,15 +469,8 @@ client.once("ready", async () => {
       const channel = await client.channels.fetch(DEADCHAT_CHANNEL).catch(() => null);
       if (!channel) return;
 
-      const embed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`)
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-      await channel.send({
-        content: `<@&${DEADCHAT_ROLE}>`,
-        embeds: [embed]
-      });
+      const embed = makeEmbed(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`);
+      await channel.send({ embeds: [embed] });
     } catch (err) {
       console.error("Deadchat:", err);
     }
@@ -475,12 +496,9 @@ client.once("ready", async () => {
           "-burps- YO YO YO, another day another wordle 😆!\n\n" +
           `**🔥 Current Streak : ${dailyStreak}**`
         )
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        .setFooter({ text: FOOTER_TEXT });
 
-      await channel.send({
-        content: `<@&${DAILY_ROLE}>`,
-        embeds: [embed]
-      });
+      await channel.send({ embeds: [embed] });
     }
   }, 60 * 1000);
 
@@ -502,8 +520,8 @@ client.once("ready", async () => {
               `-uncontrollably laughs- welcome to chat leveling, bitch!\n` +
               `<@${member.id}> is now <@&${ROLE_BASE}>`
             )
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-          await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
+            .setFooter({ text: FOOTER_TEXT });
+          await channel.send({ embeds: [embed] });
         }
       }
     }
@@ -553,9 +571,9 @@ client.once("ready", async () => {
               `-uncontrollably laughs- -points disgustingly- pffth, look at <@${oldBest}> , once the best, now an L!\n` +
               `<@${newMember.id}> is now <@&${ROLE_TOP}>`
             )
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+            .setFooter({ text: FOOTER_TEXT });
 
-          await channel.send({ content: `<@${newMember.id}>`, embeds: [embed] });
+          await channel.send({ embeds: [embed] });
         }
       }
     } catch (e) {
@@ -585,12 +603,8 @@ client.once("ready", async () => {
           "your body screams help, go lift."
         ][Math.floor(Math.random() * 5)];
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${target.id}> ${randomRoast}`)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-        await channel.send({ content: `<@${target.id}>`, embeds: [embed] });
+        const embed = makeEmbed(`<@${target.id}> ${randomRoast}`);
+        await channel.send({ embeds: [embed] });
       }
     } catch (e) {
       console.error("Roast loop error:", e);
@@ -619,10 +633,7 @@ client.once("ready", async () => {
             delete pendingFamily[key];
             continue;
           }
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setDescription("you ran out of time, bitch.")
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          const embed = makeEmbed("you ran out of time, bitch.");
           await msg.reply({ embeds: [embed] });
         } catch {}
         delete pendingFamily[key];
@@ -637,13 +648,10 @@ client.once("ready", async () => {
 client.on("interactionCreate", async (interaction) => {
   try {
     if (botLocked && interaction.user.id !== BOT_MASTER) {
-      return interaction.reply({
-        ephemeral: true,
-        content: "bot is locked, bitch."
-      });
+      const embed = makeEmbed("bot is locked, bitch.");
+      return interaction.reply({ embeds: [embed] });
     }
 
-    // ROLE MENTION FIXER
     function fixRoleMentions(text, guild) {
       if (!text) return text;
       return text.replace(/<@&(\d+)>/g, (match, id) => {
@@ -667,7 +675,7 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({
           text: footer
             ? fixRoleMentions(footer, guild)
-            : ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·."
+            : FOOTER_TEXT
         });
 
       if (title) embed.setTitle(fixRoleMentions(title, guild));
@@ -675,10 +683,8 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.channel.send({ embeds: [embed] });
 
-      return interaction.reply({
-        ephemeral: true,
-        content: "embed sent, bitch."
-      });
+      const replyEmbed = makeEmbed("embed sent, bitch.");
+      return interaction.reply({ embeds: [replyEmbed] });
     }
 
     // EMBED EDIT — MODAL SUBMIT
@@ -693,15 +699,18 @@ client.on("interactionCreate", async (interaction) => {
 
       const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
       if (!msg) {
-        return interaction.reply({ ephemeral: true, content: "message is dead, bitch." });
+        const e = makeEmbed("message is dead, bitch.");
+        return interaction.reply({ embeds: [e] });
       }
 
       if (!msg.author || msg.author.id !== client.user.id) {
-        return interaction.reply({ ephemeral: true, content: "this ain't my embed, bitch." });
+        const e = makeEmbed("this ain't my embed, bitch.");
+        return interaction.reply({ embeds: [e] });
       }
 
       if (!msg.embeds || msg.embeds.length !== 1) {
-        return interaction.reply({ ephemeral: true, content: "embed is weird, bitch." });
+        const e = makeEmbed("embed is weird, bitch.");
+        return interaction.reply({ embeds: [e] });
       }
 
       const old = msg.embeds[0];
@@ -713,7 +722,7 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({
           text: newFooter
             ? fixRoleMentions(newFooter, guild)
-            : (old.footer?.text || ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.")
+            : (old.footer?.text || FOOTER_TEXT)
         });
 
       if (newImage) embed.setImage(newImage);
@@ -721,19 +730,17 @@ client.on("interactionCreate", async (interaction) => {
 
       await msg.edit({ embeds: [embed] });
 
-      return interaction.reply({ ephemeral: true, content: "embed edited, bitch." });
+      const replyEmbed = makeEmbed("embed edited, bitch.");
+      return interaction.reply({ embeds: [replyEmbed] });
     }
 
     // BUTTONS
     if (interaction.isButton()) {
       const id = interaction.customId;
 
-      // warn hate button
       if (id.startsWith("warn_hate_")) {
-        return interaction.reply({
-          ephemeral: true,
-          content: "yeah bitch, this was sent with pure hate."
-        });
+        const e = makeEmbed("yeah bitch, this was sent with pure hate.");
+        return interaction.reply({ embeds: [e] });
       }
 
       // family confirm buttons
@@ -745,33 +752,24 @@ client.on("interactionCreate", async (interaction) => {
 
         const pf = pendingFamily[key];
         if (!pf) {
-          return interaction.reply({
-            ephemeral: true,
-            content: "this confirmation is dead, bitch."
-          });
+          const e = makeEmbed("this confirmation is dead, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         if (type === "marry" || type === "adopt") {
           if (interaction.user.id !== pf.b) {
-            return interaction.reply({
-              ephemeral: true,
-              content: "this ain't your confirmation, bitch."
-            });
+            const e = makeEmbed("this ain't your confirmation, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
         } else if (type === "divorce" || type === "abandon") {
           if (interaction.user.id !== pf.a) {
-            return interaction.reply({
-              ephemeral: true,
-              content: "this ain't your confirmation, bitch."
-            });
+            const e = makeEmbed("this ain't your confirmation, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
         }
 
         if (decision === "no") {
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setDescription("they said no, bitch.")
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          const embed = makeEmbed("they said no, bitch.");
           delete pendingFamily[key];
           return interaction.update({ embeds: [embed], components: [] });
         }
@@ -795,11 +793,7 @@ client.on("interactionCreate", async (interaction) => {
         }
         saveJson("family.json", familyData);
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription("confirmed, bitch.")
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
+        const embed = makeEmbed("confirmed, bitch.");
         delete pendingFamily[key];
         return interaction.update({ embeds: [embed], components: [] });
       }
@@ -808,7 +802,8 @@ client.on("interactionCreate", async (interaction) => {
       if (id.startsWith("cash_withdraw_")) {
         const targetId = id.split("_")[2];
         if (targetId !== interaction.user.id) {
-          return interaction.reply({ ephemeral: true, content: "this ain't your cash, bitch." });
+          const e = makeEmbed("this ain't your cash, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const modal = new ModalBuilder()
@@ -830,7 +825,8 @@ client.on("interactionCreate", async (interaction) => {
       if (id.startsWith("cash_deposit_")) {
         const targetId = id.split("_")[2];
         if (targetId !== interaction.user.id) {
-          return interaction.reply({ ephemeral: true, content: "this ain't your cash, bitch." });
+          const e = makeEmbed("this ain't your cash, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const modal = new ModalBuilder()
@@ -856,12 +852,14 @@ client.on("interactionCreate", async (interaction) => {
         const uid = parts[2];
 
         if (uid !== interaction.user.id) {
-          return interaction.reply({ ephemeral: true, content: "this ain't your game, bitch." });
+          const e = makeEmbed("this ain't your game, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const game = blackjackGames[uid];
         if (!game || game.finished) {
-          return interaction.reply({ ephemeral: true, content: "game is over, bitch." });
+          const e = makeEmbed("game is over, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         game.moves = (game.moves || 0) + 1;
@@ -893,7 +891,7 @@ client.on("interactionCreate", async (interaction) => {
             .setColor("#ED0000")
             .setTitle("Blackjack")
             .setDescription(desc)
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+            .setFooter({ text: FOOTER_TEXT });
 
           const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -953,7 +951,7 @@ client.on("interactionCreate", async (interaction) => {
               `Balance change: **${delta}** turds\n` +
               `New wallet: **${eco.wallet}**`
             )
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+            .setFooter({ text: FOOTER_TEXT });
 
           delete blackjackGames[uid];
 
@@ -964,7 +962,7 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // OTHER MODALS (announcement, cash)
+    // OTHER MODALS
     if (interaction.isModalSubmit()) {
       const id = interaction.customId;
 
@@ -978,28 +976,25 @@ client.on("interactionCreate", async (interaction) => {
         else if (type.toLowerCase() === "announcements") channelId = ANNOUNCEMENTS_TEXT_CHANNEL;
 
         if (!channelId) {
-          return interaction.reply({
-            ephemeral: true,
-            content: "learn how to type, bitch. use 'events' or 'announcements'."
-          });
+          const e = makeEmbed("learn how to type, bitch. use 'events' or 'announcements'.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const channel = await client.channels.fetch(channelId).catch(() => null);
         if (!channel) {
-          return interaction.reply({
-            ephemeral: true,
-            content: "channel is dead, bitch."
-          });
+          const e = makeEmbed("channel is dead, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const embed = new EmbedBuilder()
           .setColor("#ED0000")
           .setTitle(title)
           .setDescription(body)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
         await channel.send({ embeds: [embed] });
-        return interaction.reply({ ephemeral: true, content: "announcement sent, bitch." });
+        const replyEmbed = makeEmbed("announcement sent, bitch.");
+        return interaction.reply({ embeds: [replyEmbed] });
       }
 
       if (id === "cash_withdraw_modal") {
@@ -1007,18 +1002,21 @@ client.on("interactionCreate", async (interaction) => {
         const eco = getEcoUser(interaction.user.id);
 
         if (isNaN(amount) || amount <= 0) {
-          return interaction.reply({ ephemeral: true, content: "invalid amount, bitch." });
+          const e = makeEmbed("invalid amount, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         if (eco.bank < amount) {
-          return interaction.reply({ ephemeral: true, content: "you broke, bitch." });
+          const e = makeEmbed("you broke, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         eco.bank -= amount;
         eco.wallet += amount;
         saveJson("economy.json", economyData);
 
-        return interaction.reply({ ephemeral: true, content: `withdrew ${amount} turds, bitch.` });
+        const e = makeEmbed(`withdrew ${amount} turds, bitch.`);
+        return interaction.reply({ embeds: [e] });
       }
 
       if (id === "cash_deposit_modal") {
@@ -1026,26 +1024,29 @@ client.on("interactionCreate", async (interaction) => {
         const eco = getEcoUser(interaction.user.id);
 
         if (isNaN(amount) || amount <= 0) {
-          return interaction.reply({ ephemeral: true, content: "invalid amount, bitch." });
+          const e = makeEmbed("invalid amount, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         if (eco.wallet < amount) {
-          return interaction.reply({ ephemeral: true, content: "you broke, bitch." });
+          const e = makeEmbed("you broke, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         eco.wallet -= amount;
         eco.bank += amount;
         saveJson("economy.json", economyData);
 
-        return interaction.reply({ ephemeral: true, content: `deposited ${amount} turds, bitch.` });
+        const e = makeEmbed(`deposited ${amount} turds, bitch.`);
+        return interaction.reply({ embeds: [e] });
       }
     }
 
-    // SLASH COMMANDS HANDLING
+    // SLASH COMMANDS
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
 
-      // EMBED COMMANDS
+      // EMBED
       if (commandName === "embed") {
         const sub = interaction.options.getSubcommand();
 
@@ -1093,15 +1094,18 @@ client.on("interactionCreate", async (interaction) => {
 
           const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
           if (!msg) {
-            return interaction.reply({ ephemeral: true, content: "message is dead, bitch." });
+            const e = makeEmbed("message is dead, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
 
           if (!msg.author || msg.author.id !== client.user.id) {
-            return interaction.reply({ ephemeral: true, content: "this ain't my embed, bitch." });
+            const e = makeEmbed("this ain't my embed, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
 
           if (!msg.embeds || msg.embeds.length !== 1) {
-            return interaction.reply({ ephemeral: true, content: "embed is weird, bitch." });
+            const e = makeEmbed("embed is weird, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
 
           const modal = new ModalBuilder()
@@ -1180,10 +1184,8 @@ client.on("interactionCreate", async (interaction) => {
       if (commandName === "deadchat") {
         const mode = interaction.options.getString("mode");
         deadchatEnabled = mode === "on";
-        return interaction.reply({
-          ephemeral: true,
-          content: `deadchat is now ${deadchatEnabled ? "on" : "off"}, bitch.`
-        });
+        const e = makeEmbed(`deadchat is now ${deadchatEnabled ? "on" : "off"}, bitch.`);
+        return interaction.reply({ embeds: [e] });
       }
 
       // CMD LIST
@@ -1200,8 +1202,8 @@ client.on("interactionCreate", async (interaction) => {
             "/work, /crime, /slut, /blackjack, /rob, /cash, /roll, /purge.\n\n" +
             "figure it out, bitch."
           )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+          .setFooter({ text: FOOTER_TEXT });
+        return interaction.reply({ embeds: [embed] });
       }
 
       // DERATIZATION
@@ -1210,19 +1212,22 @@ client.on("interactionCreate", async (interaction) => {
         const channel = interaction.channel;
 
         if (!channel) {
-          return interaction.reply({ ephemeral: true, content: "channel is dead, bitch." });
+          const e = makeEmbed("channel is dead, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         if (sub === "start") {
           await channel.permissionOverwrites.edit(channel.guild.roles.everyone, {
             SendMessages: false
           }).catch(() => {});
-          return interaction.reply({ content: "channel locked, bitch.", ephemeral: true });
+          const e = makeEmbed("channel locked, bitch.");
+          return interaction.reply({ embeds: [e] });
         } else {
           await channel.permissionOverwrites.edit(channel.guild.roles.everyone, {
             SendMessages: null
           }).catch(() => {});
-          return interaction.reply({ content: "channel unlocked, bitch.", ephemeral: true });
+          const e = makeEmbed("channel unlocked, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
       }
 
@@ -1232,18 +1237,17 @@ client.on("interactionCreate", async (interaction) => {
         if (sub === "submit") {
           const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
           if (!channel) {
-            return interaction.reply({ ephemeral: true, content: "pic channel is dead, bitch." });
+            const e = makeEmbed("pic channel is dead, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
 
           picSubmitUsers.add(interaction.user.id);
 
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setDescription(`<@${interaction.user.id}> dropped a pic suggestion, bitch.`)
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
+          const embed = makeEmbed(`<@${interaction.user.id}> dropped a pic suggestion, bitch.`);
           await channel.send({ embeds: [embed] });
-          return interaction.reply({ ephemeral: true, content: "pic suggestion sent, bitch." });
+
+          const replyEmbed = makeEmbed("pic suggestion sent, bitch.");
+          return interaction.reply({ embeds: [replyEmbed] });
         }
       }
 
@@ -1254,19 +1258,19 @@ client.on("interactionCreate", async (interaction) => {
           const attachment = interaction.options.getAttachment("image");
           statusConfig.channelId = interaction.channel.id;
           statusConfig.image = attachment ? attachment.url : null;
-          return interaction.reply({
-            ephemeral: true,
-            content: "status channel set, bitch."
-          });
+          const e = makeEmbed("status channel set, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
       }
 
       // SHUTDOWN
       if (commandName === "shutdown") {
         if (interaction.user.id !== BOT_MASTER) {
-          return interaction.reply({ ephemeral: true, content: "you ain't my master, bitch." });
+          const e = makeEmbed("you ain't my master, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
-        await interaction.reply({ content: "shutting down, bitch.", ephemeral: true });
+        const e = makeEmbed("shutting down, bitch.");
+        await interaction.reply({ embeds: [e] });
         console.log("Shutdown requested by master.");
         process.exit(0);
       }
@@ -1275,14 +1279,17 @@ client.on("interactionCreate", async (interaction) => {
       if (commandName === "bot") {
         const sub = interaction.options.getSubcommand();
         if (interaction.user.id !== BOT_MASTER) {
-          return interaction.reply({ ephemeral: true, content: "you ain't my master, bitch." });
+          const e = makeEmbed("you ain't my master, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
         if (sub === "lock") {
           botLocked = true;
-          return interaction.reply({ ephemeral: true, content: "bot locked, bitch." });
+          const e = makeEmbed("bot locked, bitch.");
+          return interaction.reply({ embeds: [e] });
         } else {
           botLocked = false;
-          return interaction.reply({ ephemeral: true, content: "bot unlocked, bitch." });
+          const e = makeEmbed("bot unlocked, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
       }
 
@@ -1296,7 +1303,8 @@ client.on("interactionCreate", async (interaction) => {
 
         const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
         if (!msg) {
-          return interaction.reply({ ephemeral: true, content: "message is dead, bitch." });
+          const e = makeEmbed("message is dead, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const emojis = emojisStr.split(",").map(e => e.trim()).filter(e => e.length > 0);
@@ -1305,10 +1313,8 @@ client.on("interactionCreate", async (interaction) => {
           await msg.react(emoji).catch(() => {});
         }
 
-        return interaction.reply({
-          ephemeral: true,
-          content: "reaction roles created (you still gotta handle them in code, bitch)."
-        });
+        const e = makeEmbed("reaction roles created (you still gotta handle them in code, bitch).");
+        return interaction.reply({ embeds: [e] });
       }
 
       // KICK
@@ -1318,14 +1324,13 @@ client.on("interactionCreate", async (interaction) => {
 
         const member = await interaction.guild.members.fetch(target.id).catch(() => null);
         if (!member) {
-          return interaction.reply({ ephemeral: true, content: "they already gone, bitch." });
+          const e = makeEmbed("they already gone, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         await member.kick(reason).catch(() => {});
-        return interaction.reply({
-          content: `kicked <@${target.id}> for: ${reason}`,
-          ephemeral: true
-        });
+        const e = makeEmbed(`kicked <@${target.id}> for: ${reason}`);
+        return interaction.reply({ embeds: [e] });
       }
 
       // BAN
@@ -1335,14 +1340,13 @@ client.on("interactionCreate", async (interaction) => {
 
         const member = await interaction.guild.members.fetch(target.id).catch(() => null);
         if (!member) {
-          return interaction.reply({ ephemeral: true, content: "they already gone, bitch." });
+          const e = makeEmbed("they already gone, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         await member.ban({ reason }).catch(() => {});
-        return interaction.reply({
-          content: `banned <@${target.id}> for: ${reason}`,
-          ephemeral: true
-        });
+        const e = makeEmbed(`banned <@${target.id}> for: ${reason}`);
+        return interaction.reply({ embeds: [e] });
       }
 
       // WARN
@@ -1365,7 +1369,7 @@ client.on("interactionCreate", async (interaction) => {
             `Reason: ${reason}\n` +
             `Moderator: <@${interaction.user.id}>`
           )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
         await interaction.reply({ embeds: [embed] });
       }
@@ -1376,10 +1380,8 @@ client.on("interactionCreate", async (interaction) => {
         const logs = warnsData.users[target.id] || [];
 
         if (logs.length === 0) {
-          return interaction.reply({
-            ephemeral: true,
-            content: "no warns, bitch."
-          });
+          const e = makeEmbed("no warns, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const desc = logs
@@ -1393,9 +1395,9 @@ client.on("interactionCreate", async (interaction) => {
           .setColor("#ED0000")
           .setTitle(`Warn logs for ${target.tag}`)
           .setDescription(desc)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({ embeds: [embed] });
       }
 
       // GROUND
@@ -1408,13 +1410,9 @@ client.on("interactionCreate", async (interaction) => {
         groundData.users[target.id] = { until, reason };
         saveJson("ground.json", groundData);
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(
-            `<@${target.id}> got grounded for ${duration} minutes, bitch.\nReason: ${reason}`
-          )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
+        const embed = makeEmbed(
+          `<@${target.id}> got grounded for ${duration} minutes, bitch.\nReason: ${reason}`
+        );
         return interaction.reply({ embeds: [embed] });
       }
 
@@ -1424,11 +1422,7 @@ client.on("interactionCreate", async (interaction) => {
         delete groundData.users[target.id];
         saveJson("ground.json", groundData);
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${target.id}> is ungrounded, bitch.`)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
+        const embed = makeEmbed(`<@${target.id}> is ungrounded, bitch.`);
         return interaction.reply({ embeds: [embed] });
       }
 
@@ -1436,21 +1430,19 @@ client.on("interactionCreate", async (interaction) => {
       if (commandName === "roast") {
         const mode = interaction.options.getString("mode");
         roastEnabled = mode === "on";
-        return interaction.reply({
-          ephemeral: true,
-          content: `roast mode is now ${roastEnabled ? "on" : "off"}, bitch.`
-        });
+        const e = makeEmbed(`roast mode is now ${roastEnabled ? "on" : "off"}, bitch.`);
+        return interaction.reply({ embeds: [e] });
       }
 
-      // FAMILY: MARRY / DIVORCE / ADOPT / ABANDON / FAMILYTREE
+      // FAMILY
       if (commandName === "marry") {
         const partner = interaction.options.getUser("user");
         const key = `marry_${interaction.user.id}_${partner.id}_${Date.now()}`;
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${interaction.user.id}> wants to marry <@${partner.id}>, bitch.`)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        const embed = makeEmbed(
+          `<@${interaction.user.id}> wants to marry <@${partner.id}>, bitch.`
+        );
+        embed.setTitle("Marriage, bitch.");
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1479,10 +1471,10 @@ client.on("interactionCreate", async (interaction) => {
         const partner = interaction.options.getUser("user");
         const key = `divorce_${interaction.user.id}_${partner.id}_${Date.now()}`;
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${interaction.user.id}> wants to divorce <@${partner.id}>, bitch.`)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        const embed = makeEmbed(
+          `<@${interaction.user.id}> wants to divorce <@${partner.id}>, bitch.`
+        );
+        embed.setTitle("Divorce, bitch.");
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1511,10 +1503,10 @@ client.on("interactionCreate", async (interaction) => {
         const child = interaction.options.getUser("user");
         const key = `adopt_${interaction.user.id}_${child.id}_${Date.now()}`;
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${interaction.user.id}> wants to adopt <@${child.id}>, bitch.`)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        const embed = makeEmbed(
+          `<@${interaction.user.id}> wants to adopt <@${child.id}>, bitch.`
+        );
+        embed.setTitle("Adoption, bitch.");
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1543,10 +1535,10 @@ client.on("interactionCreate", async (interaction) => {
         const child = interaction.options.getUser("user");
         const key = `abandon_${interaction.user.id}_${child.id}_${Date.now()}`;
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${interaction.user.id}> wants to abandon <@${child.id}>, bitch.`)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        const embed = makeEmbed(
+          `<@${interaction.user.id}> wants to abandon <@${child.id}>, bitch.`
+        );
+        embed.setTitle("Abandon, bitch.");
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1604,7 +1596,7 @@ client.on("interactionCreate", async (interaction) => {
           .setColor("#ED0000")
           .setTitle(`Family tree for <@${userId}>`)
           .setDescription(desc)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
         return interaction.reply({ embeds: [embed] });
       }
@@ -1619,7 +1611,8 @@ client.on("interactionCreate", async (interaction) => {
             .slice(0, 10);
 
           if (entries.length === 0) {
-            return interaction.reply({ ephemeral: true, content: "no data, bitch." });
+            const e = makeEmbed("no data, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
 
           const desc = entries
@@ -1630,7 +1623,7 @@ client.on("interactionCreate", async (interaction) => {
             .setColor("#ED0000")
             .setTitle("Messages leaderboard, bitch.")
             .setDescription(desc)
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+            .setFooter({ text: FOOTER_TEXT });
 
           return interaction.reply({ embeds: [embed] });
         } else {
@@ -1639,7 +1632,8 @@ client.on("interactionCreate", async (interaction) => {
             .slice(0, 10);
 
           if (entries.length === 0) {
-            return interaction.reply({ ephemeral: true, content: "no turds, bitch." });
+            const e = makeEmbed("no turds, bitch.");
+            return interaction.reply({ embeds: [e] });
           }
 
           const desc = entries
@@ -1655,30 +1649,50 @@ client.on("interactionCreate", async (interaction) => {
             .setColor("#ED0000")
             .setTitle("Economy leaderboard, bitch.")
             .setDescription(desc)
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+            .setFooter({ text: FOOTER_TEXT });
 
           return interaction.reply({ embeds: [embed] });
         }
       }
 
-      // STATS
+      // STATS – XP ONLY
       if (commandName === "stats") {
         const userId = interaction.user.id;
         const xpUser = getXpUser(userId);
-        const eco = getEcoUser(userId);
+
+        const currentXp = xpUser.xp;
+        const currentIndex = getLevelIndexFromXp(currentXp);
+        const currentThreshold = XP_THRESHOLDS[currentIndex];
+        const nextThreshold = XP_THRESHOLDS[currentIndex + 1] || null;
+
+        const currentXpBase = currentThreshold.xp;
+        const nextXpTarget = nextThreshold ? nextThreshold.xp : null;
+
+        const remaining = nextXpTarget ? Math.max(0, nextXpTarget - currentXp) : 0;
+        const bar = buildProgressBar(currentXp, currentXpBase, nextXpTarget);
+
+        const guild = interaction.guild;
+        const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+        const avatarUrl = member
+          ? member.displayAvatarURL({ dynamic: true })
+          : interaction.user.displayAvatarURL({ dynamic: true });
 
         const embed = new EmbedBuilder()
           .setColor("#ED0000")
-          .setTitle(`Stats for <@${userId}>`)
+          .setTitle(`XP stats for <@${userId}>, bitch.`)
+          .setThumbnail(avatarUrl)
           .setDescription(
-            `Messages: ${xpUser.messages}\n` +
-            `XP: ${xpUser.xp}\n` +
-            `Wallet: ${eco.wallet}\n` +
-            `Bank: ${eco.bank}`
+            `Current rank: <@&${currentThreshold.role}>\n\n` +
+            `XP: **${currentXp}**\n` +
+            (nextXpTarget
+              ? `Next rank at: **${nextXpTarget}** XP\n` +
+                `Remaining XP: **${remaining}**\n` +
+                `Progress: ${bar}`
+              : `you already at top, bitch.\nProgress: 🟢🟢🟢🟢🟢🟢🟢🟢 100%`)
           )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({ embeds: [embed] });
       }
 
       // XP DELETE
@@ -1689,17 +1703,16 @@ client.on("interactionCreate", async (interaction) => {
           delete xpData.users[target.id];
           saveJson("xpData.json", xpData);
 
-          return interaction.reply({
-            ephemeral: true,
-            content: `deleted xp for <@${target.id}>, bitch.`
-          });
+          const e = makeEmbed(`deleted xp for <@${target.id}>, bitch.`);
+          return interaction.reply({ embeds: [e] });
         }
       }
 
       // ECONOMY: WORK / CRIME / SLUT / ROB / CASH / ROLL / BLACKJACK
       if (commandName === "work") {
         if (!canUse(interaction.user.id, "work", 60 * 1000)) {
-          return interaction.reply({ ephemeral: true, content: "slow down, bitch." });
+          const e = makeEmbed("slow down, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
         const eco = getEcoUser(interaction.user.id);
         const amount = Math.floor(Math.random() * 150) + 50;
@@ -1715,17 +1728,25 @@ client.on("interactionCreate", async (interaction) => {
         ];
         const text = phrases[Math.floor(Math.random() * phrases.length)];
 
-        return interaction.reply({ content: text });
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Work, bitch.")
+          .setDescription(text)
+          .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.reply({ embeds: [embed] });
       }
 
       if (commandName === "crime") {
         if (!canUse(interaction.user.id, "crime", 90 * 1000)) {
-          return interaction.reply({ ephemeral: true, content: "chill, criminal, bitch." });
+          const e = makeEmbed("chill, criminal, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
         const eco = getEcoUser(interaction.user.id);
         const success = Math.random() < 0.5;
         const amount = Math.floor(Math.random() * 200) + 50;
 
+        let text;
         if (success) {
           eco.wallet += amount;
           saveJson("economy.json", economyData);
@@ -1736,7 +1757,7 @@ client.on("interactionCreate", async (interaction) => {
             `you scammed someone in DMs and earned **${amount}** turds, bitch.`,
             `you committed tax fraud and pocketed **${amount}** turds, bitch.`
           ];
-          return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+          text = phrases[Math.floor(Math.random() * phrases.length)];
         } else {
           eco.wallet = Math.max(0, eco.wallet - amount);
           saveJson("economy.json", economyData);
@@ -1747,13 +1768,22 @@ client.on("interactionCreate", async (interaction) => {
             `you slipped on the getaway and lost **${amount}** turds, bitch.`,
             `you snitched on yourself and lost **${amount}** turds, bitch.`
           ];
-          return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+          text = phrases[Math.floor(Math.random() * phrases.length)];
         }
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Crime, bitch.")
+          .setDescription(text)
+          .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.reply({ embeds: [embed] });
       }
 
       if (commandName === "slut") {
         if (!canUse(interaction.user.id, "slut", 90 * 1000)) {
-          return interaction.reply({ ephemeral: true, content: "you already sold yourself, bitch." });
+          const e = makeEmbed("you already sold yourself, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
         const eco = getEcoUser(interaction.user.id);
         const amount = Math.floor(Math.random() * 250) + 50;
@@ -1767,29 +1797,41 @@ client.on("interactionCreate", async (interaction) => {
           `you posted thirst and got **${amount}** turds, bitch.`,
           `you became premium cringe and earned **${amount}** turds, bitch.`
         ];
-        return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+        const text = phrases[Math.floor(Math.random() * phrases.length)];
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Slut, bitch.")
+          .setDescription(text)
+          .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.reply({ embeds: [embed] });
       }
 
       if (commandName === "rob") {
         const target = interaction.options.getUser("user");
         if (target.id === interaction.user.id) {
-          return interaction.reply({ ephemeral: true, content: "you can't rob yourself, bitch." });
+          const e = makeEmbed("you can't rob yourself, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         if (!canUse(interaction.user.id, "rob", 120 * 1000)) {
-          return interaction.reply({ ephemeral: true, content: "rob cooldown, bitch." });
+          const e = makeEmbed("rob cooldown, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const eco = getEcoUser(interaction.user.id);
         const victimEco = getEcoUser(target.id);
 
         if (victimEco.wallet <= 0) {
-          return interaction.reply({ ephemeral: true, content: "they broke, bitch." });
+          const e = makeEmbed("they broke, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const success = Math.random() < 0.5;
         const amount = Math.floor(Math.random() * Math.max(1, victimEco.wallet)) + 1;
 
+        let text;
         if (success) {
           victimEco.wallet -= amount;
           eco.wallet += amount;
@@ -1802,7 +1844,7 @@ client.on("interactionCreate", async (interaction) => {
             `you mugged <@${target.id}> and took **${amount}** turds, bitch.`,
             `you slid their wallet and grabbed **${amount}** turds, bitch.`
           ];
-          return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+          text = phrases[Math.floor(Math.random() * phrases.length)];
         } else {
           const fine = Math.floor(amount / 2);
           eco.wallet = Math.max(0, eco.wallet - fine);
@@ -1815,8 +1857,16 @@ client.on("interactionCreate", async (interaction) => {
             `you tripped while robbing and spilled **${fine}** turds, bitch.`,
             `you fumbled the robbery and lost **${fine}** turds, bitch.`
           ];
-          return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+          text = phrases[Math.floor(Math.random() * phrases.length)];
         }
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Rob, bitch.")
+          .setDescription(text)
+          .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.reply({ embeds: [embed] });
       }
 
       if (commandName === "cash") {
@@ -1824,12 +1874,12 @@ client.on("interactionCreate", async (interaction) => {
 
         const embed = new EmbedBuilder()
           .setColor("#ED0000")
-          .setTitle("Your cash, bitch.")
+          .setTitle("Your filthy money, bitch.")
           .setDescription(
             `Wallet: **${eco.wallet}** turds\n` +
             `Bank: **${eco.bank}** turds`
           )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1850,13 +1900,16 @@ client.on("interactionCreate", async (interaction) => {
         const eco = getEcoUser(interaction.user.id);
 
         if (amount <= 0) {
-          return interaction.reply({ ephemeral: true, content: "roll something real, bitch." });
+          const e = makeEmbed("roll something real, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
         if (eco.wallet < amount) {
-          return interaction.reply({ ephemeral: true, content: "you broke, bitch." });
+          const e = makeEmbed("you broke, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const win = Math.random() < 0.5;
+        let text;
         if (win) {
           eco.wallet += amount;
           saveJson("economy.json", economyData);
@@ -1867,7 +1920,7 @@ client.on("interactionCreate", async (interaction) => {
             `you spun the wheel and won **${amount}** turds, bitch.`,
             `you risked it and got **${amount}** turds, bitch.`
           ];
-          return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+          text = phrases[Math.floor(Math.random() * phrases.length)];
         } else {
           eco.wallet -= amount;
           saveJson("economy.json", economyData);
@@ -1878,8 +1931,16 @@ client.on("interactionCreate", async (interaction) => {
             `you gambled and the house took **${amount}** turds, bitch.`,
             `you risked it and lost **${amount}** turds, bitch.`
           ];
-          return interaction.reply({ content: phrases[Math.floor(Math.random() * phrases.length)] });
+          text = phrases[Math.floor(Math.random() * phrases.length)];
         }
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Roll, bitch.")
+          .setDescription(text)
+          .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.reply({ embeds: [embed] });
       }
 
       if (commandName === "blackjack") {
@@ -1887,7 +1948,8 @@ client.on("interactionCreate", async (interaction) => {
         const bet = 50;
 
         if (eco.wallet < bet) {
-          return interaction.reply({ ephemeral: true, content: "you can't afford blackjack, bitch." });
+          const e = makeEmbed("you can't afford blackjack, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         const playerHand = [bjDrawCard(), bjDrawCard()];
@@ -1914,7 +1976,7 @@ client.on("interactionCreate", async (interaction) => {
           .setColor("#ED0000")
           .setTitle("Blackjack")
           .setDescription(desc)
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          .setFooter({ text: FOOTER_TEXT });
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1934,11 +1996,13 @@ client.on("interactionCreate", async (interaction) => {
       if (commandName === "purge") {
         const amount = interaction.options.getInteger("amount");
         if (amount < 1 || amount > 100) {
-          return interaction.reply({ ephemeral: true, content: "1-100 only, bitch." });
+          const e = makeEmbed("1-100 only, bitch.");
+          return interaction.reply({ embeds: [e] });
         }
 
         await interaction.channel.bulkDelete(amount, true).catch(() => {});
-        return interaction.reply({ ephemeral: true, content: `purged ${amount} messages, bitch.` });
+        const e = makeEmbed(`purged ${amount} messages, bitch.`);
+        return interaction.reply({ embeds: [e] });
       }
     }
 
@@ -1946,7 +2010,8 @@ client.on("interactionCreate", async (interaction) => {
     console.error("Interaction error:", err);
     if (interaction.isRepliable()) {
       try {
-        await interaction.reply({ ephemeral: true, content: "something broke, bitch." });
+        const e = makeEmbed("something broke, bitch.");
+        await interaction.reply({ embeds: [e] });
       } catch {}
     }
   }
@@ -1958,14 +2023,13 @@ client.on("interactionCreate", async (interaction) => {
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
 
-  // XP system
   try {
     const guild = msg.guild;
     if (!guild) return;
 
     const xpUser = getXpUser(msg.author.id);
     xpUser.messages += 1;
-    const gained = Math.floor(Math.random() * 11) + 5; // 5–15 xp
+    const gained = Math.floor(Math.random() * 11) + 5;
     xpUser.xp += gained;
 
     const oldIndex = xpUser.levelIndex;
@@ -1974,11 +2038,13 @@ client.on("messageCreate", async (msg) => {
 
     saveJson("xpData.json", xpData);
 
-    if (msg.channel.id === CHAT_XP_CHANNEL && newIndex !== oldIndex) {
+    const isXpChannel =
+      msg.channel.id === CHAT_XP_CHANNEL || msg.channel.id === EXTRA_XP_CHANNEL;
+
+    if (isXpChannel && newIndex !== oldIndex) {
       const threshold = XP_THRESHOLDS[newIndex];
       const member = await guild.members.fetch(msg.author.id).catch(() => null);
       if (member) {
-        // remove all level roles except base
         for (const t of XP_THRESHOLDS) {
           if (member.roles.cache.has(t.role) && t.role !== ROLE_BASE) {
             await member.roles.remove(t.role).catch(() => {});
@@ -1994,8 +2060,8 @@ client.on("messageCreate", async (msg) => {
               `-uncontrollably laughs- <@${msg.author.id}> leveled up, bitch.\n` +
               `now rocking <@&${threshold.role}>`
             )
-            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-          await channel.send({ content: `<@${msg.author.id}>`, embeds: [embed] });
+            .setFooter({ text: FOOTER_TEXT });
+          await channel.send({ embeds: [embed] });
         }
       }
     }
