@@ -171,12 +171,12 @@ function canUse(userId, cmd, ms) {
 
 // Blackjack helpers
 function bjDrawCard() {
-  const values = [2,3,4,5,6,7,8,9,10,11];
+  const values = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   return values[Math.floor(Math.random() * values.length)];
 }
 
 function bjHandValue(hand) {
-  let sum = hand.reduce((a,b) => a + b, 0);
+  let sum = hand.reduce((a, b) => a + b, 0);
   let aces = hand.filter(v => v === 11).length;
   while (sum > 21 && aces > 0) {
     sum -= 10;
