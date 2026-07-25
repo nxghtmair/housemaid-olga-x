@@ -57,9 +57,9 @@ let economyData = loadJson("economy.json", {
   users: {}         // userId: { wallet, bank }
 });
 
-let cooldowns = {};        
-let pendingFamily = {};    
-let misuseCounts = {};     
+let cooldowns = {};
+let pendingFamily = {};
+let misuseCounts = {};
 let statusConfig = {
   channelId: null,
   messageId: null,
@@ -69,7 +69,7 @@ let statusConfig = {
   image: null
 };
 
-let blackjackGames = {};   
+let blackjackGames = {};
 
 const {
   Client,
@@ -137,10 +137,10 @@ const XP_THRESHOLDS = [
   { role: ROLE_BASE, xp: 0 },
   { role: ROLE_6, xp: 500 },
   { role: ROLE_5, xp: 1000 },
-  { role: ROLE_4, xp: 100000 },
-  { role: ROLE_3, xp: 150000 },
-  { role: ROLE_2, xp: 500000 },
-  { role: ROLE_TOP, xp: 1000000 }
+  { role: ROLE_4, xp: 1500 },
+  { role: ROLE_3, xp: 2000 },
+  { role: ROLE_2, xp: 3000 },
+  { role: ROLE_TOP, xp: 10000 }
 ];
 
 let deadchatEnabled = false;
@@ -198,6 +198,7 @@ client.once("ready", async () => {
     status: "idle",
     activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.7 ࿐ྂ", type: 1 }]
   });
+
   // ===============================
   // SLASH COMMANDS
   // ===============================
@@ -246,9 +247,7 @@ client.once("ready", async () => {
       .addSubcommand(s => s.setName("lock").setDescription("lock bot"))
       .addSubcommand(s => s.setName("unlock").setDescription("unlock bot")),
 
-    // ===============================
     // EMBED COMMANDS
-    // ===============================
     new SlashCommandBuilder()
       .setName("embed")
       .setDescription("embed tools")
@@ -418,6 +417,7 @@ client.once("ready", async () => {
   ]);
 
   console.log("Slash commands registered.");
+
   // DEADCHAT LOOP
   setInterval(async () => {
     if (!deadchatEnabled) return;
@@ -627,19 +627,16 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // ===============================
     // ROLE MENTION FIXER
-    // ===============================
     function fixRoleMentions(text, guild) {
+      if (!text) return text;
       return text.replace(/<@&(\d+)>/g, (match, id) => {
         const role = guild.roles.cache.get(id);
         return role ? `<@&${id}>` : match;
       });
     }
 
-    // ===============================
     // EMBED CREATE — MODAL SUBMIT
-    // ===============================
     if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
       const title = interaction.fields.getTextInputValue("embed_title");
       const desc = interaction.fields.getTextInputValue("embed_desc");
@@ -651,7 +648,11 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
         .setDescription(fixRoleMentions(desc, guild))
-        .setFooter({ text: footer ? fixRoleMentions(footer, guild) : ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        .setFooter({
+          text: footer
+            ? fixRoleMentions(footer, guild)
+            : ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·."
+        });
 
       if (title) embed.setTitle(fixRoleMentions(title, guild));
       if (image) embed.setImage(image);
@@ -664,9 +665,7 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // ===============================
     // EMBED EDIT — MODAL SUBMIT
-    // ===============================
     if (interaction.isModalSubmit() && interaction.customId.startsWith("embed_edit_")) {
       const msgId = interaction.customId.split("_")[2];
       const guild = interaction.guild;
@@ -696,7 +695,9 @@ client.on("interactionCreate", async (interaction) => {
         .setTitle(newTitle ? fixRoleMentions(newTitle, guild) : old.title)
         .setDescription(newDesc ? fixRoleMentions(newDesc, guild) : old.description)
         .setFooter({
-          text: newFooter ? fixRoleMentions(newFooter, guild) : (old.footer?.text || ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.")
+          text: newFooter
+            ? fixRoleMentions(newFooter, guild)
+            : (old.footer?.text || ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.")
         });
 
       if (newImage) embed.setImage(newImage);
@@ -706,6 +707,7 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.reply({ ephemeral: true, content: "embed edited, bitch." });
     }
+
     // BUTTONS
     if (interaction.isButton()) {
       const id = interaction.customId;
@@ -720,7 +722,7 @@ client.on("interactionCreate", async (interaction) => {
 
       // family confirm buttons
       if (id.startsWith("family_")) {
-        const parts = id.split("_"); 
+        const parts = id.split("_");
         const type = parts[1];
         const decision = parts[2];
         const key = parts.slice(3).join("_");
@@ -946,7 +948,7 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // MODALS
+    // OTHER MODALS (announcement, cash)
     if (interaction.isModalSubmit()) {
       const id = interaction.customId;
 
@@ -1027,9 +1029,48 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
 
-      // EMBED EDIT COMMAND
+      // EMBED COMMANDS
       if (commandName === "embed") {
         const sub = interaction.options.getSubcommand();
+
+        if (sub === "create") {
+          const modal = new ModalBuilder()
+            .setCustomId("embed_modal")
+            .setTitle("Custom Embed Creator");
+
+          const titleInput = new TextInputBuilder()
+            .setCustomId("embed_title")
+            .setLabel("Title (optional)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const descInput = new TextInputBuilder()
+            .setCustomId("embed_desc")
+            .setLabel("Description")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true);
+
+          const imageInput = new TextInputBuilder()
+            .setCustomId("embed_image")
+            .setLabel("Image URL (optional)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const footerInput = new TextInputBuilder()
+            .setCustomId("embed_footer")
+            .setLabel("Footer (optional)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(titleInput),
+            new ActionRowBuilder().addComponents(descInput),
+            new ActionRowBuilder().addComponents(imageInput),
+            new ActionRowBuilder().addComponents(footerInput)
+          );
+
+          return interaction.showModal(modal);
+        }
 
         if (sub === "edit") {
           const msgId = interaction.options.getString("msgid");
@@ -1086,8 +1127,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // your other slash commands continue here...
-      // (kick, ban, warn, economy, blackjack, family, xp, etc.)
+      // ... your other slash commands (kick, ban, warn, economy, etc.) here ...
     }
 
   } catch (err) {
