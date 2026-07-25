@@ -52,6 +52,7 @@ let groundData = loadJson("ground.json", {
 let dailyStreakData = loadJson("streak.json", { dailyStreak: 0 });
 let dailyStreak = dailyStreakData.dailyStreak || 0;
 
+// ECONOMY PERSISTENCE
 let economyData = loadJson("economy.json", {
   users: {}         // userId: { wallet, bank }
 });
@@ -68,7 +69,7 @@ let statusConfig = {
   image: null
 };
 
-let blackjackGames = {};   // userId -> { playerHand, dealerHand, moves, finished }
+let blackjackGames = {};   // userId -> { bet, playerHand, dealerHand, moves, finished }
 
 const {
   Client,
@@ -156,6 +157,7 @@ const picSubmitUsers = new Set();
 function getEcoUser(id) {
   if (!economyData.users[id]) {
     economyData.users[id] = { wallet: 0, bank: 0 };
+    saveJson("economy.json", economyData);
   }
   return economyData.users[id];
 }
@@ -388,6 +390,12 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("cash")
       .setDescription("show your cash"),
+    new SlashCommandBuilder()
+      .setName("roll")
+      .setDescription("roll your money")
+      .addIntegerOption(o =>
+        o.setName("amount").setDescription("amount to roll").setRequired(true)
+      ),
 
     new SlashCommandBuilder()
       .setName("purge")
@@ -733,7 +741,7 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.showModal(modal);
       }
 
-      // BLACKJACK buttons
+      // BLACKJACK buttons – only executor
       if (id.startsWith("bj_")) {
         const parts = id.split("_"); // bj_action_userid
         const action = parts[1];
@@ -760,14 +768,15 @@ client.on("interactionCreate", async (interaction) => {
           const playerVal = bjHandValue(game.playerHand);
           const dealerVal = bjHandValue(game.dealerHand);
 
-          let desc = `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
+          let desc = `**Bet:** ${game.bet} turds\n\n` +
+                     `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
                      `**Dealer hand:** ${game.dealerHand.join(", ")} (value: ${dealerVal})\n\n`;
 
           if (playerVal > 21) {
             game.finished = true;
-            eco.wallet -= 500;
+            eco.wallet -= game.bet;
             saveJson("economy.json", economyData);
-            desc += "you busted, bitch. -500 turds.";
+            desc += `you busted, bitch. -${game.bet} turds.`;
           } else {
             desc += "hit again or stand, bitch.";
           }
@@ -810,13 +819,13 @@ client.on("interactionCreate", async (interaction) => {
 
           if (playerVal > 21) {
             result = "you busted, bitch.";
-            delta = -500;
+            delta = -game.bet;
           } else if (dealerVal > 21 || playerVal > dealerVal) {
             result = "you actually won, bitch.";
-            delta = 500;
+            delta = game.bet;
           } else if (playerVal < dealerVal) {
             result = "dealer clapped you, bitch.";
-            delta = -500;
+            delta = -game.bet;
           } else {
             result = "it's a tie, boring bitch.";
             delta = 0;
@@ -829,6 +838,7 @@ client.on("interactionCreate", async (interaction) => {
             .setColor("#ED0000")
             .setTitle("Blackjack – Final")
             .setDescription(
+              `**Bet:** ${game.bet} turds\n\n` +
               `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
               `**Dealer hand:** ${game.dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
               `${result}\n` +
@@ -1003,7 +1013,7 @@ client.on("interactionCreate", async (interaction) => {
           "/embed create, /rolescreate, /kick, /ban, /warn, /warnlogs, /ground, /unground,\n" +
           "/roast, /marry, /divorce, /adopt, /abandon, /familytree,\n" +
           "/leaderboard, /stats, /xp delete,\n" +
-          "/work, /crime, /slut, /blackjack, /rob, /cash,\n" +
+          "/work, /crime, /slut, /blackjack, /rob, /cash, /roll,\n" +
           "/purge"
         )
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
@@ -1530,7 +1540,12 @@ client.on("interactionCreate", async (interaction) => {
         "you screamed at customers for {amount} turds.",
         "you survived a shift with idiots for {amount} turds.",
         "you pretended to care for {amount} turds.",
-        "you fixed someone's mess for {amount} turds."
+        "you fixed someone's mess for {amount} turds.",
+        "you carried the whole team for {amount} turds.",
+        "you gaslit someone for {amount} turds.",
+        "you overshared for {amount} turds.",
+        "you trauma dumped for {amount} turds.",
+        "you rage quit and still got {amount} turds."
       ];
 
       const amount = Math.floor(Math.random() * (50 - 10 + 1)) + 10;
@@ -1558,16 +1573,39 @@ client.on("interactionCreate", async (interaction) => {
 
       const eco = getEcoUser(user.id);
       const amount = Math.floor(Math.random() * (1000 - 100 + 1)) + 100;
-      const fineChance = 0.3;
+      const fineChance = 0.2;
+
+      const crimeMessages = [
+        "you robbed a clown for {amount} turds.",
+        "you hacked someone's fridge for {amount} turds.",
+        "you stole emotional support for {amount} turds.",
+        "you sold fake therapy for {amount} turds.",
+        "you scammed a scammer for {amount} turds.",
+        "you robbed a gym bro for {amount} turds.",
+        "you stole someone's last braincell for {amount} turds.",
+        "you pickpocketed a boomer for {amount} turds.",
+        "you robbed a crying influencer for {amount} turds.",
+        "you stole someone's Spotify playlist for {amount} turds."
+      ];
+
+      const fineMessages = [
+        "you got caught flexing your crime and got fined {fine} turds.",
+        "you tripped over your own ego and got fined {fine} turds.",
+        "you bragged too hard and cops fined you {fine} turds.",
+        "you posted your crime on stories and got fined {fine} turds.",
+        "you snitched on yourself and got fined {fine} turds."
+      ];
 
       let desc;
       if (Math.random() < fineChance) {
-        const fine = Math.floor(Math.random() * 1000);
+        const fine = Math.floor(Math.random() * (200 - 10 + 1)) + 10;
         eco.wallet -= fine;
-        desc = `you got fined **${fine}** turds, bitch.`;
+        const template = fineMessages[Math.floor(Math.random() * fineMessages.length)];
+        desc = template.replace("{fine}", fine.toString());
       } else {
         eco.wallet += amount;
-        desc = `you earned **${amount}** turds from crime, bitch.`;
+        const template = crimeMessages[Math.floor(Math.random() * crimeMessages.length)];
+        desc = template.replace("{amount}", amount.toString());
       }
 
       saveJson("economy.json", economyData);
@@ -1590,16 +1628,39 @@ client.on("interactionCreate", async (interaction) => {
 
       const eco = getEcoUser(user.id);
       const amount = Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
-      const fineChance = 0.6;
+      const fineChance = 0.4;
+
+      const slutMessages = [
+        "you flirted your way to {amount} turds.",
+        "you sold premium chaos for {amount} turds.",
+        "you emotionally destroyed someone for {amount} turds.",
+        "you did a toxic speedrun for {amount} turds.",
+        "you ghosted three people and earned {amount} turds.",
+        "you overshared on main and got {amount} turds.",
+        "you broke five hearts for {amount} turds.",
+        "you did a situationship marathon for {amount} turds.",
+        "you posted thirst traps and earned {amount} turds.",
+        "you trauma bonded for {amount} turds."
+      ];
+
+      const fineMessages = [
+        "you got slapped with a **{fine}** turds fine for being too slutty.",
+        "karma charged you **{fine}** turds for your slut behavior.",
+        "you got billed **{fine}** turds for emotional damage.",
+        "you got fined **{fine}** turds for public sluttiness.",
+        "you got taxed **{fine}** turds for toxic energy."
+      ];
 
       let desc;
       if (Math.random() < fineChance) {
-        const fine = Math.floor(Math.random() * (60000 - 10000 + 1)) + 10000;
+        const fine = Math.floor(Math.random() * (600 - 10 + 1)) + 10;
         eco.wallet -= fine;
-        desc = `you got slapped with a **${fine}** turds fine, slut.`;
+        const template = fineMessages[Math.floor(Math.random() * fineMessages.length)];
+        desc = template.replace("{fine}", fine.toString());
       } else {
         eco.wallet += amount;
-        desc = `you earned **${amount}** turds being a slut, bitch.`;
+        const template = slutMessages[Math.floor(Math.random() * slutMessages.length)];
+        desc = template.replace("{amount}", amount.toString());
       }
 
       saveJson("economy.json", economyData);
@@ -1622,41 +1683,28 @@ client.on("interactionCreate", async (interaction) => {
 
       const eco = getEcoUser(user.id);
 
-      const playerHand = [bjDrawCard(), bjDrawCard()];
-      const dealerHand = [bjDrawCard(), bjDrawCard()];
+      if (eco.wallet <= 0) {
+        return interaction.reply({
+          ephemeral: true,
+          content: "you got 0 withdrawn turds, bitch. withdraw some with /cash first."
+        });
+      }
 
-      blackjackGames[user.id] = {
-        playerHand,
-        dealerHand,
-        moves: 0,
-        finished: false
-      };
+      // ask for bet via modal
+      const modal = new ModalBuilder()
+        .setCustomId(`blackjack_bet_${user.id}`)
+        .setTitle("Blackjack bet");
 
-      const playerVal = bjHandValue(playerHand);
-      const dealerVal = bjHandValue(dealerHand);
+      const input = new TextInputBuilder()
+        .setCustomId("bet")
+        .setLabel(`Bet amount (max ${eco.wallet})`)
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
 
-      const embed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setTitle("Blackjack")
-        .setDescription(
-          `**Your hand:** ${playerHand.join(", ")} (value: ${playerVal})\n` +
-          `**Dealer hand:** ${dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
-          "hit or stand, bitch. you get up to 10 moves."
-        )
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+      const row = new ActionRowBuilder().addComponents(input);
+      modal.addComponents(row);
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`bj_hit_${user.id}`)
-          .setLabel("Hit")
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId(`bj_stand_${user.id}`)
-          .setLabel("Stand")
-          .setStyle(ButtonStyle.Secondary)
-      );
-
-      return interaction.reply({ embeds: [embed], components: [row] });
+      return interaction.showModal(modal);
     }
 
     if (cmd === "rob") {
@@ -1740,6 +1788,39 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed], components: [row] });
     }
 
+    if (cmd === "roll") {
+      const amount = interaction.options.getInteger("amount", true);
+      if (amount <= 0) {
+        return interaction.reply({ ephemeral: true, content: "use real numbers, bitch." });
+      }
+
+      const eco = getEcoUser(user.id);
+      if (eco.wallet < amount) {
+        return interaction.reply({
+          ephemeral: true,
+          content: "you don't have that much withdrawn, bitch."
+        });
+      }
+
+      eco.wallet -= amount;
+
+      const maxGain = amount * 2;
+      const gain = Math.floor(Math.random() * (maxGain - amount + 1)) + amount;
+
+      eco.wallet += gain;
+      saveJson("economy.json", economyData);
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(
+          `you rolled **${amount}** turds and got **${gain}** back.\n` +
+          `Profit: **${gain - amount}** turds, bitch.`
+        )
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
     if (cmd === "purge") {
       const amount = interaction.options.getInteger("amount", true);
       if (!member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
@@ -1756,6 +1837,71 @@ client.on("interactionCreate", async (interaction) => {
     if (!interaction.replied && !interaction.deferred) {
       interaction.reply({ ephemeral: true, content: "something broke, bitch." }).catch(() => {});
     }
+  }
+});
+
+// BLACKJACK BET MODAL HANDLER
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isModalSubmit()) return;
+  const id = interaction.customId;
+
+  if (id.startsWith("blackjack_bet_")) {
+    const uid = id.split("_")[2];
+    if (uid !== interaction.user.id) {
+      return interaction.reply({ ephemeral: true, content: "this ain't your bet, bitch." });
+    }
+
+    const eco = getEcoUser(uid);
+    const betStr = interaction.fields.getTextInputValue("bet");
+    const bet = parseInt(betStr, 10);
+
+    if (isNaN(bet) || bet <= 0) {
+      return interaction.reply({ ephemeral: true, content: "learn numbers, bitch." });
+    }
+    if (bet > eco.wallet) {
+      return interaction.reply({
+        ephemeral: true,
+        content: "you don't have that much withdrawn, bitch."
+      });
+    }
+
+    const playerHand = [bjDrawCard(), bjDrawCard()];
+    const dealerHand = [bjDrawCard(), bjDrawCard()];
+
+    blackjackGames[uid] = {
+      bet,
+      playerHand,
+      dealerHand,
+      moves: 0,
+      finished: false
+    };
+
+    const playerVal = bjHandValue(playerHand);
+    const dealerVal = bjHandValue(dealerHand);
+
+    const embed = new EmbedBuilder()
+      .setColor("#ED0000")
+      .setTitle("Blackjack")
+      .setDescription(
+        `**Bet:** ${bet} turds\n\n` +
+        `**Your hand:** ${playerHand.join(", ")} (value: ${playerVal})\n` +
+        `**Dealer hand:** ${dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
+        "hit or stand, bitch. you get up to 10 moves."
+      )
+      .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`bj_hit_${uid}`)
+        .setLabel("Hit")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`bj_stand_${uid}`)
+        .setLabel("Stand")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    return interaction.reply({ embeds: [embed], components: [row] });
   }
 });
 // ===============================
