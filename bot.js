@@ -31,7 +31,7 @@ function saveJson(path, data) {
 // PERSISTENT DATA
 // ===============================
 let xpData = loadJson("xpData.json", {
-  users: {},        // userId: { xp, messages }
+  users: {},        // userId: { xp, messages, levelIndex }
   bestUserId: null,
   bestSince: null
 });
@@ -67,6 +67,8 @@ let statusConfig = {
   shutdown: "",
   image: null
 };
+
+let blackjackGames = {};   // userId -> { playerHand, dealerHand, moves, finished }
 
 const {
   Client,
@@ -155,7 +157,6 @@ function getEcoUser(id) {
   if (!economyData.users[id]) {
     economyData.users[id] = { wallet: 0, bank: 0 };
   }
-  // allow negative totals (debts)
   return economyData.users[id];
 }
 
@@ -168,11 +169,33 @@ function canUse(userId, cmd, ms) {
   return true;
 }
 
+// BLACKJACK HELPERS
+function bjDrawCard() {
+  const values = [2,3,4,5,6,7,8,9,10,11];
+  return values[Math.floor(Math.random() * values.length)];
+}
+
+function bjHandValue(hand) {
+  let sum = hand.reduce((a,b) => a + b, 0);
+  let aces = hand.filter(v => v === 11).length;
+  while (sum > 21 && aces > 0) {
+    sum -= 10;
+    aces--;
+  }
+  return sum;
+}
+
 // ===============================
 // READY
 // ===============================
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  // wipe XP všech uživatelů při startu
+  xpData.users = {};
+  xpData.bestUserId = null;
+  xpData.bestSince = null;
+  saveJson("xpData.json", xpData);
 
   await client.user.setPresence({
     status: "idle",
@@ -183,12 +206,10 @@ client.once("ready", async () => {
   // SLASH COMMANDS
   // ===============================
   await client.application.commands.set([
-    // ANNOUNCEMENT (modal-based)
     new SlashCommandBuilder()
       .setName("announcement")
       .setDescription("create announcement (modal)"),
 
-    // DEADCHAT
     new SlashCommandBuilder()
       .setName("deadchat")
       .setDescription("toggle deadchat")
@@ -199,23 +220,19 @@ client.once("ready", async () => {
           .setRequired(true)
       ),
 
-    // CMD LIST
     new SlashCommandBuilder().setName("cmd").setDescription("show all commands"),
 
-    // DERATIZATION
     new SlashCommandBuilder()
       .setName("deratization")
       .setDescription("lock/unlock channel")
       .addSubcommand(s => s.setName("start").setDescription("lock"))
       .addSubcommand(s => s.setName("end").setDescription("unlock")),
 
-    // PIC SUBMIT
     new SlashCommandBuilder()
       .setName("pic")
       .setDescription("pic suggestion")
       .addSubcommand(s => s.setName("submit").setDescription("submit a pic")),
 
-    // STATUS SYSTEM
     new SlashCommandBuilder()
       .setName("statuschannel")
       .setDescription("configure status system")
@@ -225,23 +242,19 @@ client.once("ready", async () => {
           .addAttachmentOption(o => o.setName("image").setDescription("optional image"))
       ),
 
-    // SHUTDOWN
     new SlashCommandBuilder().setName("shutdown").setDescription("shutdown"),
 
-    // BOT LOCK
     new SlashCommandBuilder()
       .setName("bot")
       .setDescription("lock/unlock bot")
       .addSubcommand(s => s.setName("lock").setDescription("lock bot"))
       .addSubcommand(s => s.setName("unlock").setDescription("unlock bot")),
 
-    // EMBED CREATOR
     new SlashCommandBuilder()
       .setName("embed")
       .setDescription("create embed")
       .addSubcommand(s => s.setName("create").setDescription("create embed")),
 
-    // REACTION ROLES
     new SlashCommandBuilder()
       .setName("rolescreate")
       .setDescription("create reaction roles")
@@ -269,7 +282,6 @@ client.once("ready", async () => {
           .setDescription("Role 3")
       ),
 
-    // MODERATION: KICK / BAN / WARN / WARNLOGS
     new SlashCommandBuilder()
       .setName("kick")
       .setDescription("kick a bitch")
@@ -293,7 +305,6 @@ client.once("ready", async () => {
       .setDescription("show warn logs")
       .addUserOption(o => o.setName("user").setDescription("target").setRequired(true)),
 
-    // GROUND / UNGROUND
     new SlashCommandBuilder()
       .setName("ground")
       .setDescription("ground (mute) a bitch")
@@ -306,7 +317,6 @@ client.once("ready", async () => {
       .setDescription("unground a bitch")
       .addUserOption(o => o.setName("user").setDescription("target").setRequired(true)),
 
-    // ROAST
     new SlashCommandBuilder()
       .setName("roast")
       .setDescription("toggle roast mode")
@@ -317,7 +327,6 @@ client.once("ready", async () => {
           .setRequired(true)
       ),
 
-    // FAMILY
     new SlashCommandBuilder()
       .setName("marry")
       .setDescription("marry a bitch")
@@ -342,7 +351,6 @@ client.once("ready", async () => {
       .setName("familytree")
       .setDescription("show your family tree"),
 
-    // LEADERBOARD / STATS / XP ADMIN
     new SlashCommandBuilder()
       .setName("leaderboard")
       .setDescription("show leaderboard")
@@ -369,7 +377,6 @@ client.once("ready", async () => {
           .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
       ),
 
-    // ECONOMY COMMANDS
     new SlashCommandBuilder().setName("work").setDescription("work for turds"),
     new SlashCommandBuilder().setName("crime").setDescription("commit crime for turds"),
     new SlashCommandBuilder().setName("slut").setDescription("be a slut for turds"),
@@ -382,7 +389,6 @@ client.once("ready", async () => {
       .setName("cash")
       .setDescription("show your cash"),
 
-    // PURGE
     new SlashCommandBuilder()
       .setName("purge")
       .setDescription("purge messages")
@@ -522,7 +528,7 @@ client.once("ready", async () => {
     }
   }, 10 * 60 * 1000);
 
-  // ROAST LOOP
+  // ROAST LOOP – do XP kanálu
   setInterval(async () => {
     if (!roastEnabled) return;
     try {
@@ -533,21 +539,20 @@ client.once("ready", async () => {
         if (members.size === 0) continue;
         const arr = [...members.values()];
         const target = arr[Math.floor(Math.random() * arr.length)];
-        const channel = guild.channels.cache.get(LEVEL_CHANNEL);
+        const channel = guild.channels.cache.get(CHAT_XP_CHANNEL);
         if (!channel) continue;
 
-        const lines = [
-          "go work out, bitch, your fat ass needs it.",
+        const randomRoast = [
+          "go work out, bitch.",
           "go lose some weight, bitch.",
           "you look like a walking donut, go gym.",
           "cardio, bitch. now.",
           "your body screams help, go lift."
-        ];
-        const line = lines[Math.floor(Math.random() * lines.length)];
+        ][Math.floor(Math.random() * 5)];
 
         const embed = new EmbedBuilder()
           .setColor("#ED0000")
-          .setDescription(`<@${target.id}> ${line}`)
+          .setDescription(`<@${target.id}> ${randomRoast}`)
           .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
         await channel.send({ content: `<@${target.id}>`, embeds: [embed] });
@@ -629,6 +634,23 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+        // kdo smí potvrzovat
+        if (type === "marry" || type === "adopt") {
+          if (interaction.user.id !== pf.b) {
+            return interaction.reply({
+              ephemeral: true,
+              content: "this ain't your confirmation, bitch."
+            });
+          }
+        } else if (type === "divorce" || type === "abandon") {
+          if (interaction.user.id !== pf.a) {
+            return interaction.reply({
+              ephemeral: true,
+              content: "this ain't your confirmation, bitch."
+            });
+          }
+        }
+
         if (decision === "no") {
           const embed = new EmbedBuilder()
             .setColor("#ED0000")
@@ -638,7 +660,6 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.update({ embeds: [embed], components: [] });
         }
 
-        // YES
         if (type === "marry") {
           familyData.marriages.push({ a: pf.a, b: pf.b });
         } else if (type === "adopt") {
@@ -712,6 +733,116 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.showModal(modal);
       }
 
+      // BLACKJACK buttons
+      if (id.startsWith("bj_")) {
+        const parts = id.split("_"); // bj_action_userid
+        const action = parts[1];
+        const uid = parts[2];
+
+        if (uid !== interaction.user.id) {
+          return interaction.reply({ ephemeral: true, content: "this ain't your game, bitch." });
+        }
+
+        const game = blackjackGames[uid];
+        if (!game || game.finished) {
+          return interaction.reply({ ephemeral: true, content: "game is over, bitch." });
+        }
+
+        game.moves = (game.moves || 0) + 1;
+        if (game.moves > 10) {
+          game.finished = true;
+        }
+
+        const eco = getEcoUser(uid);
+
+        if (action === "hit" && !game.finished) {
+          game.playerHand.push(bjDrawCard());
+          const playerVal = bjHandValue(game.playerHand);
+          const dealerVal = bjHandValue(game.dealerHand);
+
+          let desc = `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
+                     `**Dealer hand:** ${game.dealerHand.join(", ")} (value: ${dealerVal})\n\n`;
+
+          if (playerVal > 21) {
+            game.finished = true;
+            eco.wallet -= 500;
+            saveJson("economy.json", economyData);
+            desc += "you busted, bitch. -500 turds.";
+          } else {
+            desc += "hit again or stand, bitch.";
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Blackjack")
+            .setDescription(desc)
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`bj_hit_${uid}`)
+              .setLabel("Hit")
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(game.finished),
+            new ButtonBuilder()
+              .setCustomId(`bj_stand_${uid}`)
+              .setLabel("Stand")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(game.finished)
+          );
+
+          return interaction.update({ embeds: [embed], components: game.finished ? [] : [row] });
+        }
+
+        if (action === "stand" || game.finished) {
+          game.finished = true;
+
+          let playerVal = bjHandValue(game.playerHand);
+          let dealerVal = bjHandValue(game.dealerHand);
+
+          while (dealerVal < 17) {
+            game.dealerHand.push(bjDrawCard());
+            dealerVal = bjHandValue(game.dealerHand);
+          }
+
+          let result;
+          let delta = 0;
+
+          if (playerVal > 21) {
+            result = "you busted, bitch.";
+            delta = -500;
+          } else if (dealerVal > 21 || playerVal > dealerVal) {
+            result = "you actually won, bitch.";
+            delta = 500;
+          } else if (playerVal < dealerVal) {
+            result = "dealer clapped you, bitch.";
+            delta = -500;
+          } else {
+            result = "it's a tie, boring bitch.";
+            delta = 0;
+          }
+
+          eco.wallet += delta;
+          saveJson("economy.json", economyData);
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Blackjack – Final")
+            .setDescription(
+              `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
+              `**Dealer hand:** ${game.dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
+              `${result}\n` +
+              `Balance change: **${delta}** turds\n` +
+              `New wallet: **${eco.wallet}**`
+            )
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+          delete blackjackGames[uid];
+
+          return interaction.update({ embeds: [embed], components: [] });
+        }
+      }
+
       return;
     }
 
@@ -722,7 +853,7 @@ client.on("interactionCreate", async (interaction) => {
       if (id === "announcement_modal") {
         const title = interaction.fields.getTextInputValue("title");
         const body = interaction.fields.getTextInputValue("body");
-        const type = interaction.fields.getTextInputValue("type"); // "events" / "announcements"
+        const type = interaction.fields.getTextInputValue("type");
 
         let channelId = null;
         if (type.toLowerCase() === "events") channelId = EVENTS_TEXT_CHANNEL;
@@ -822,9 +953,6 @@ client.on("interactionCreate", async (interaction) => {
     const user = interaction.user;
     const member = interaction.member;
 
-    // ===============================
-    // ANNOUNCEMENT (modal)
-    // ===============================
     if (cmd === "announcement") {
       const modal = new ModalBuilder()
         .setCustomId("announcement_modal")
@@ -857,7 +985,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.showModal(modal);
     }
 
-    // DEADCHAT
     if (cmd === "deadchat") {
       const mode = interaction.options.getString("mode", true);
       deadchatEnabled = mode === "on";
@@ -867,7 +994,6 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // CMD LIST
     if (cmd === "cmd") {
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
@@ -884,7 +1010,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // DERATIZATION
     if (cmd === "deratization") {
       const sub = interaction.options.getSubcommand();
       const channel = interaction.channel;
@@ -906,7 +1031,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // PIC SUBMIT
     if (cmd === "pic") {
       const sub = interaction.options.getSubcommand();
       if (sub === "submit") {
@@ -918,7 +1042,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // STATUSCHANNEL
     if (cmd === "statuschannel") {
       const sub = interaction.options.getSubcommand();
       if (sub === "set") {
@@ -942,7 +1065,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // SHUTDOWN
     if (cmd === "shutdown") {
       if (user.id !== BOT_MASTER) {
         return interaction.reply({ ephemeral: true, content: "no perms, bitch." });
@@ -955,7 +1077,6 @@ client.on("interactionCreate", async (interaction) => {
       process.exit(0);
     }
 
-    // BOT LOCK
     if (cmd === "bot") {
       const sub = interaction.options.getSubcommand();
       if (user.id !== BOT_MASTER) {
@@ -968,7 +1089,6 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // EMBED CREATE
     if (cmd === "embed") {
       const sub = interaction.options.getSubcommand();
       if (sub === "create") {
@@ -997,7 +1117,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // REACTION ROLES
     if (cmd === "rolescreate") {
       const msgId = interaction.options.getString("msgid", true);
       const emojisStr = interaction.options.getString("emojis", true);
@@ -1027,7 +1146,6 @@ client.on("interactionCreate", async (interaction) => {
         await msg.react(emojis[i]).catch(() => {});
       }
 
-      // store mapping
       let rrData = loadJson("reactionroles.json", {});
       rrData[msgId] = {
         emojis: emojis.slice(0, roles.length),
@@ -1041,7 +1159,6 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // KICK
     if (cmd === "kick") {
       const target = interaction.options.getUser("user", true);
       const reason = interaction.options.getString("reason") || "no reason, bitch.";
@@ -1056,7 +1173,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // BAN
     if (cmd === "ban") {
       const target = interaction.options.getUser("user", true);
       const reason = interaction.options.getString("reason") || "no reason, bitch.";
@@ -1071,7 +1187,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // WARN
     if (cmd === "warn") {
       const target = interaction.options.getUser("user", true);
       const reason = interaction.options.getString("reason", true);
@@ -1102,14 +1217,27 @@ client.on("interactionCreate", async (interaction) => {
           .setStyle(ButtonStyle.Danger)
       );
 
-      return interaction.reply({
+      await interaction.reply({
         content: `<@${target.id}>`,
         embeds: [embed],
         components: [row]
       });
+
+      try {
+        const dmEmbed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(
+            `you got warned, bitch.\n\n**Reason:** ${reason}`
+          )
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+        const u = await client.users.fetch(target.id);
+        await u.send({ embeds: [dmEmbed] }).catch(() => {});
+      } catch {}
+
+      return;
     }
 
-    // WARNLOGS
     if (cmd === "warnlogs") {
       const target = interaction.options.getUser("user", true);
       const logs = warnsData.users[target.id] || [];
@@ -1135,7 +1263,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // GROUND
     if (cmd === "ground") {
       const target = interaction.options.getUser("user", true);
       const duration = interaction.options.getInteger("duration", true);
@@ -1154,7 +1281,6 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.reply({ embeds: [embed] });
 
-      // DM
       try {
         const dmEmbed = new EmbedBuilder()
           .setColor("#ED0000")
@@ -1169,7 +1295,6 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // UNGROUND
     if (cmd === "unground") {
       const target = interaction.options.getUser("user", true);
       delete groundData.users[target.id];
@@ -1183,7 +1308,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ROAST
     if (cmd === "roast") {
       const mode = interaction.options.getString("mode", true);
       roastEnabled = mode === "on";
@@ -1193,7 +1317,6 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // FAMILY: marry/adopt/divorce/abandon/familytree
     if (cmd === "marry" || cmd === "adopt" || cmd === "divorce" || cmd === "abandon") {
       const target = interaction.options.getUser("user", true);
 
@@ -1273,7 +1396,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // LEADERBOARD
     if (cmd === "leaderboard") {
       const type = interaction.options.getString("type", true);
 
@@ -1326,13 +1448,11 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // STATS
     if (cmd === "stats") {
-      const data = xpData.users[user.id] || { xp: 0, messages: 0 };
+      const data = xpData.users[user.id] || { xp: 0, messages: 0, levelIndex: 0 };
       const xp = data.xp || 0;
       const msgs = data.messages || 0;
 
-      // find next threshold
       let next = XP_THRESHOLDS.find(t => t.xp > xp);
       let prev = XP_THRESHOLDS.slice().reverse().find(t => t.xp <= xp);
       if (!prev) prev = XP_THRESHOLDS[0];
@@ -1360,7 +1480,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // XP ADMIN DELETE
     if (cmd === "xp") {
       const sub = interaction.options.getSubcommand();
       if (sub === "delete") {
@@ -1376,7 +1495,6 @@ client.on("interactionCreate", async (interaction) => {
           .setDescription(`deleted XP for <@${target.id}>`)
           .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-        // DM
         try {
           const dmEmbed = new EmbedBuilder()
             .setColor("#ED0000")
@@ -1392,7 +1510,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ECONOMY: WORK
     if (cmd === "work") {
       if (!canUse(user.id, "work", 5000)) {
         return interaction.reply({
@@ -1431,7 +1548,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ECONOMY: CRIME
     if (cmd === "crime") {
       if (!canUse(user.id, "crime", 60 * 1000)) {
         return interaction.reply({
@@ -1464,7 +1580,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ECONOMY: SLUT
     if (cmd === "slut") {
       if (!canUse(user.id, "slut", 2 * 60 * 1000)) {
         return interaction.reply({
@@ -1497,7 +1612,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ECONOMY: BLACKJACK
     if (cmd === "blackjack") {
       if (!canUse(user.id, "blackjack", 5 * 60 * 1000)) {
         return interaction.reply({
@@ -1508,46 +1622,18 @@ client.on("interactionCreate", async (interaction) => {
 
       const eco = getEcoUser(user.id);
 
-      function drawCard() {
-        const values = [2,3,4,5,6,7,8,9,10,11];
-        return values[Math.floor(Math.random() * values.length)];
-      }
+      const playerHand = [bjDrawCard(), bjDrawCard()];
+      const dealerHand = [bjDrawCard(), bjDrawCard()];
 
-      function handValue(hand) {
-        let sum = hand.reduce((a,b) => a + b, 0);
-        let aces = hand.filter(v => v === 11).length;
-        while (sum > 21 && aces > 0) {
-          sum -= 10;
-          aces--;
-        }
-        return sum;
-      }
+      blackjackGames[user.id] = {
+        playerHand,
+        dealerHand,
+        moves: 0,
+        finished: false
+      };
 
-      const playerHand = [drawCard(), drawCard()];
-      const dealerHand = [drawCard(), drawCard()];
-
-      const playerVal = handValue(playerHand);
-      const dealerVal = handValue(dealerHand);
-
-      let result;
-      let delta = 0;
-
-      if (playerVal > 21) {
-        result = "you busted, bitch.";
-        delta = -500;
-      } else if (dealerVal > 21 || playerVal > dealerVal) {
-        result = "you actually won, bitch.";
-        delta = 500;
-      } else if (playerVal < dealerVal) {
-        result = "dealer clapped you, bitch.";
-        delta = -500;
-      } else {
-        result = "it's a tie, boring bitch.";
-        delta = 0;
-      }
-
-      eco.wallet += delta;
-      saveJson("economy.json", economyData);
+      const playerVal = bjHandValue(playerHand);
+      const dealerVal = bjHandValue(dealerHand);
 
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
@@ -1555,16 +1641,24 @@ client.on("interactionCreate", async (interaction) => {
         .setDescription(
           `**Your hand:** ${playerHand.join(", ")} (value: ${playerVal})\n` +
           `**Dealer hand:** ${dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
-          `${result}\n` +
-          `Balance change: **${delta}** turds\n` +
-          `New wallet: **${eco.wallet}**`
+          "hit or stand, bitch. you get up to 10 moves."
         )
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-      return interaction.reply({ embeds: [embed] });
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bj_hit_${user.id}`)
+          .setLabel("Hit")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`bj_stand_${user.id}`)
+          .setLabel("Stand")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      return interaction.reply({ embeds: [embed], components: [row] });
     }
 
-    // ECONOMY: ROB
     if (cmd === "rob") {
       if (!canUse(user.id, "rob", 15 * 60 * 1000)) {
         return interaction.reply({
@@ -1593,18 +1687,15 @@ client.on("interactionCreate", async (interaction) => {
       let desc;
 
       if (outcome < 0.3) {
-        // fine only
         const fine = Math.floor(Math.random() * 1000);
         eco.wallet -= fine;
         desc = `you got fined **${fine}** turds for trying to rob, bitch.`;
       } else if (outcome < 0.7) {
-        // partial steal
         const amount = Math.floor(available * 0.3);
         targetEco.wallet -= amount;
         eco.wallet += amount;
         desc = `you stole **${amount}** turds from <@${target.id}>, bitch.`;
       } else {
-        // full steal
         const amount = available;
         targetEco.wallet -= amount;
         eco.wallet += amount;
@@ -1621,7 +1712,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ECONOMY: CASH
     if (cmd === "cash") {
       const eco = getEcoUser(user.id);
       const total = eco.wallet + eco.bank;
@@ -1650,7 +1740,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed], components: [row] });
     }
 
-    // PURGE
     if (cmd === "purge") {
       const amount = interaction.options.getInteger("amount", true);
       if (!member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
@@ -1677,7 +1766,7 @@ client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
 
     // DM pic submit
-    if (message.channel.type === 1) { // DM
+    if (message.channel.type === 1) {
       if (picSubmitUsers.has(message.author.id)) {
         const guild = client.guilds.cache.first();
         if (!guild) return;
@@ -1704,7 +1793,6 @@ client.on("messageCreate", async (message) => {
     // GROUND CHECK
     const g = groundData.users[message.author.id];
     if (g && g.until > Date.now()) {
-      // delete message
       await message.delete().catch(() => {});
       return;
     } else if (g && g.until <= Date.now()) {
@@ -1712,12 +1800,8 @@ client.on("messageCreate", async (message) => {
       saveJson("ground.json", groundData);
     }
 
-    // REACTION ROLES HANDLER
-    if (message.partial) return;
-
     // XP SYSTEM – ONLY IN CHAT_XP_CHANNEL
     if (message.channel.id === CHAT_XP_CHANNEL) {
-      // if command used here -> scold / auto-ground
       if (message.content.startsWith("/") || message.content.startsWith("!")) {
         misuseCounts[message.author.id] = (misuseCounts[message.author.id] || 0) + 1;
 
@@ -1758,42 +1842,37 @@ client.on("messageCreate", async (message) => {
         }
       }
 
-      // XP gain
       if (!xpData.users[message.author.id]) {
-        xpData.users[message.author.id] = { xp: 0, messages: 0 };
+        xpData.users[message.author.id] = { xp: 0, messages: 0, levelIndex: 0 };
       }
       const data = xpData.users[message.author.id];
 
+      let oldIndex = data.levelIndex || 0;
+
       let xpGain = 0;
       const words = message.content.trim().split(/\s+/).filter(Boolean);
-      xpGain += words.length; // 1 xp per word
+      xpGain += words.length;
 
       if (message.attachments.size > 0) {
-        xpGain += 10; // 10 xp per pic
+        xpGain += 10;
       }
 
       data.xp += xpGain;
       data.messages += 1;
-      saveJson("xpData.json", xpData);
 
-      // check level up
       const xp = data.xp;
-      let currentRole = null;
-      let nextRole = null;
-
+      let newIndex = 0;
       for (let i = 0; i < XP_THRESHOLDS.length; i++) {
-        if (xp >= XP_THRESHOLDS[i].xp) {
-          currentRole = XP_THRESHOLDS[i];
-        } else {
-          nextRole = XP_THRESHOLDS[i];
-          break;
-        }
+        if (xp >= XP_THRESHOLDS[i].xp) newIndex = i;
+        else break;
       }
+      data.levelIndex = newIndex;
+
+      saveJson("xpData.json", xpData);
 
       const member = await guild.members.fetch(message.author.id).catch(() => null);
       if (!member) return;
 
-      // assign roles according to XP
       for (const t of XP_THRESHOLDS) {
         if (xp >= t.xp) {
           if (!member.roles.cache.has(t.role)) {
@@ -1806,24 +1885,26 @@ client.on("messageCreate", async (message) => {
         }
       }
 
-      // level up message
-      const channel = guild.channels.cache.get(LEVEL_CHANNEL);
-      if (channel && nextRole) {
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(
-            `<@${message.author.id}> leveled up, bitch.\n` +
-            `Current XP: **${xp}**\n` +
-            `Next role: <@&${nextRole.role}> at **${nextRole.xp}** XP`
-          )
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+      if (newIndex > oldIndex) {
+        const nextRole = XP_THRESHOLDS[newIndex + 1] || null;
+        const channel = guild.channels.cache.get(LEVEL_CHANNEL);
+        if (channel) {
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription(
+              `<@${message.author.id}> leveled up, bitch.\n` +
+              `Current XP: **${xp}**\n` +
+              (nextRole
+                ? `Next role: <@&${nextRole.role}> at **${nextRole.xp}** XP`
+                : `You're at the top, bitch.`)
+            )
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
-        await channel.send({ content: `<@${message.author.id}>`, embeds: [embed] });
+          await channel.send({ content: `<@${message.author.id}>`, embeds: [embed] });
+        }
       }
 
       return;
-    } else {
-      // commands in other channels are fine, XP not counted
     }
   } catch (e) {
     console.error("messageCreate error:", e);
