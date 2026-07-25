@@ -7,7 +7,7 @@ process.on("unhandledRejection", (err) => console.error("UNHANDLED PROMISE:", er
 console.log("Bot.js starting...");
 
 // ===============================
-// FILE STORAGE
+// FILE STORAGE HELPERS
 // ===============================
 const fs = require("fs");
 
@@ -30,9 +30,13 @@ function saveJson(path, data) {
   }
 }
 
+// ===============================
+// PERSISTENT DATA
+// ===============================
+
 // XP / messages / levels
 let xpData = loadJson("xpData.json", {
-  users: {}, // userId: { xp, messages, bestDays, lastBestChange }
+  users: {}, // userId: { xp, messages }
   bestUserId: null,
   bestSince: null
 });
@@ -45,7 +49,7 @@ let warnsData = loadJson("warns.json", {
 // family
 let familyData = loadJson("family.json", {
   marriages: [], // { a, b }
-  parents: [],   // { parent, child }
+  parents: []    // { parent, child }
 });
 
 // ground (mute-like)
@@ -56,6 +60,17 @@ let groundData = loadJson("ground.json", {
 // daily streak
 let dailyStreakData = loadJson("streak.json", { dailyStreak: 0 });
 let dailyStreak = dailyStreakData.dailyStreak || 0;
+
+// economy
+let economyData = loadJson("economy.json", {
+  users: {} // userId: { wallet, bank }
+});
+
+// cooldowns
+let cooldowns = {}; // { userId: { cmdName: timestamp } }
+
+// family confirmations
+let pendingFamily = {}; // key: customId -> { type, a, b, msgId, guildId, expiresAt }
 
 // ===============================
 // DISCORD IMPORTS
@@ -102,6 +117,9 @@ const ANNOUNCE_CHANNEL = "1513932745854816356";
 const EVENTS_ROLE = "1527338030531084498";
 const PERMISSION_ROLE = "1530115234767966340";
 
+const EVENTS_TEXT_CHANNEL = "1527334173982064650";
+const ANNOUNCEMENTS_TEXT_CHANNEL = "1513932745854816356";
+
 const DEADCHAT_ROLE = "1530138181490577558";
 const DEADCHAT_CHANNEL = "1513932745854816356";
 const DEADCHAT_INTERVAL = 5 * 60 * 1000;
@@ -140,6 +158,25 @@ let roastEnabled = false;
 const picSubmitUsers = new Set();
 
 // ===============================
+// ECONOMY HELPERS
+// ===============================
+function getEcoUser(id) {
+  if (!economyData.users[id]) {
+    economyData.users[id] = { wallet: 0, bank: 0 };
+  }
+  return economyData.users[id];
+}
+
+function canUse(userId, cmd, ms) {
+  const now = Date.now();
+  if (!cooldowns[userId]) cooldowns[userId] = {};
+  const last = cooldowns[userId][cmd] || 0;
+  if (now - last < ms) return false;
+  cooldowns[userId][cmd] = now;
+  return true;
+}
+
+// ===============================
 // READY
 // ===============================
 client.once("ready", async () => {
@@ -147,27 +184,15 @@ client.once("ready", async () => {
 
   await client.user.setPresence({
     status: "idle",
-    activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.6 ࿐ྂ", type: 1 }]
+    activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.7 ࿐ྂ", type: 1 }]
   });
 
   // REGISTER SLASH COMMANDS
   await client.application.commands.set([
-    // ANNOUNCEMENT
+    // ANNOUNCEMENT (modal-based)
     new SlashCommandBuilder()
       .setName("announcement")
-      .setDescription("send an announcement bitch")
-      .addStringOption(o => o.setName("title").setDescription("title").setRequired(true))
-      .addStringOption(o => o.setName("description").setDescription("desc").setRequired(true))
-      .addStringOption(o =>
-        o.setName("ping")
-          .setDescription("ping type")
-          .addChoices(
-            { name: "everyone", value: "everyone" },
-            { name: "events", value: "events" },
-            { name: "none", value: "none" }
-          )
-          .setRequired(true)
-      ),
+      .setDescription("create announcement (modal)"),
 
     // DEADCHAT
     new SlashCommandBuilder()
@@ -329,8 +354,11 @@ client.once("ready", async () => {
       .setDescription("show leaderboard")
       .addStringOption(o =>
         o.setName("type")
-          .setDescription("messages")
-          .addChoices({ name: "messages", value: "messages" })
+          .setDescription("messages/economy")
+          .addChoices(
+            { name: "messages", value: "messages" },
+            { name: "economy", value: "economy" }
+          )
           .setRequired(true)
       ),
 
@@ -345,6 +373,32 @@ client.once("ready", async () => {
         s.setName("delete")
           .setDescription("delete user xp")
           .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
+      ),
+
+    // ECONOMY COMMANDS
+    new SlashCommandBuilder().setName("work").setDescription("work for turds"),
+    new SlashCommandBuilder().setName("crime").setDescription("commit crime for turds"),
+    new SlashCommandBuilder().setName("slut").setDescription("be a slut for turds"),
+    new SlashCommandBuilder().setName("blackjack").setDescription("play blackjack for turds"),
+    new SlashCommandBuilder()
+      .setName("rob")
+      .setDescription("rob a bitch")
+      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true)),
+    new SlashCommandBuilder()
+      .setName("withdraw")
+      .setDescription("withdraw turds from bank")
+      .addIntegerOption(o => o.setName("amount").setDescription("amount").setRequired(true)),
+    new SlashCommandBuilder()
+      .setName("deposit")
+      .setDescription("deposit turds to bank")
+      .addIntegerOption(o => o.setName("amount").setDescription("amount").setRequired(true)),
+
+    // PURGE
+    new SlashCommandBuilder()
+      .setName("purge")
+      .setDescription("purge messages")
+      .addIntegerOption(o =>
+        o.setName("amount").setDescription("amount (1-100)").setRequired(true)
       )
   ]);
 
@@ -459,11 +513,9 @@ client.once("ready", async () => {
           const newMember = guild.members.cache.get(bestId);
           if (!newMember) continue;
 
-          // remove ROLE_TOP from old
           if (oldMember && oldMember.roles.cache.has(ROLE_TOP)) {
             await oldMember.roles.remove(ROLE_TOP).catch(() => {});
           }
-          // give ROLE_TOP to new
           if (!newMember.roles.cache.has(ROLE_TOP)) {
             await newMember.roles.add(ROLE_TOP).catch(() => {});
           }
@@ -518,6 +570,39 @@ client.once("ready", async () => {
       console.error("Roast loop error:", e);
     }
   }, 5 * 60 * 1000);
+
+  // FAMILY CONFIRMATION TIMEOUT CHECK
+  setInterval(async () => {
+    const now = Date.now();
+    for (const key in pendingFamily) {
+      const pf = pendingFamily[key];
+      if (pf.expiresAt <= now) {
+        try {
+          const guild = client.guilds.cache.get(pf.guildId);
+          if (!guild) {
+            delete pendingFamily[key];
+            continue;
+          }
+          const channel = guild.channels.cache.get(pf.channelId);
+          if (!channel) {
+            delete pendingFamily[key];
+            continue;
+          }
+          const msg = await channel.messages.fetch(pf.msgId).catch(() => null);
+          if (!msg) {
+            delete pendingFamily[key];
+            continue;
+          }
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription("you ran out of time, bitch.")
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          await msg.reply({ embeds: [embed] });
+        } catch {}
+        delete pendingFamily[key];
+      }
+    }
+  }, 30 * 1000);
 });
 
 // ===============================
@@ -526,6 +611,46 @@ client.once("ready", async () => {
 client.on("interactionCreate", async (interaction) => {
   try {
     if (botLocked && interaction.user.id !== BOT_MASTER) return;
+
+    // ANNOUNCEMENT MODAL
+    if (interaction.isChatInputCommand() && interaction.commandName === "announcement") {
+      const modal = new ModalBuilder()
+        .setCustomId("announcement_modal")
+        .setTitle("Announcement Creator");
+
+      const channelInput = new TextInputBuilder()
+        .setCustomId("ann_channel")
+        .setLabel("Channel (events / announcements)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const titleInput = new TextInputBuilder()
+        .setCustomId("ann_title")
+        .setLabel("Title")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const descInput = new TextInputBuilder()
+        .setCustomId("ann_desc")
+        .setLabel("Description")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true);
+
+      const pingInput = new TextInputBuilder()
+        .setCustomId("ann_ping")
+        .setLabel("Ping (everyone / events / none)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(channelInput),
+        new ActionRowBuilder().addComponents(titleInput),
+        new ActionRowBuilder().addComponents(descInput),
+        new ActionRowBuilder().addComponents(pingInput)
+      );
+
+      return interaction.showModal(modal);
+    }
 
     // EMBED CREATE – SHOW MODAL
     if (interaction.isChatInputCommand() && interaction.commandName === "embed") {
@@ -577,6 +702,57 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+    // ANNOUNCEMENT MODAL SUBMIT
+    if (interaction.isModalSubmit() && interaction.customId === "announcement_modal") {
+      const channelChoice = interaction.fields.getTextInputValue("ann_channel").toLowerCase();
+      const title = interaction.fields.getTextInputValue("ann_title");
+      const desc = interaction.fields.getTextInputValue("ann_desc");
+      const pingChoice = interaction.fields.getTextInputValue("ann_ping").toLowerCase();
+
+      let channelId = null;
+      if (channelChoice === "events") channelId = EVENTS_TEXT_CHANNEL;
+      if (channelChoice === "announcements") channelId = ANNOUNCEMENTS_TEXT_CHANNEL;
+
+      if (!channelId) {
+        return interaction.reply({
+          content: "invalid channel choice bitch (use events / announcements)",
+          ephemeral: true
+        });
+      }
+
+      let ping = "";
+      if (pingChoice === "everyone") ping = "@everyone";
+      if (pingChoice === "events") ping = `<@&${EVENTS_ROLE}>`;
+      if (pingChoice === "none") ping = "";
+
+      const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
+      if (!channel) {
+        return interaction.reply({
+          content: "announcement channel not found bitch",
+          ephemeral: true
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(desc)
+        .setColor("#ED0000")
+        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      await channel.send({
+        content: ping || undefined,
+        embeds: [embed]
+      });
+
+      const confirmEmbed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setDescription("✔ successfully sent bitch")
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      return interaction.reply({ embeds: [confirmEmbed], ephemeral: true });
+    }
+
     // EMBED CREATE – SUBMIT
     if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
       const channelsRaw = interaction.fields.getTextInputValue("embed_channels");
@@ -602,6 +778,74 @@ client.on("interactionCreate", async (interaction) => {
         content: "✔ embed sent bitch",
         ephemeral: true
       });
+    }
+
+    // FAMILY CONFIRM BUTTONS
+    if (interaction.isButton() && interaction.customId.startsWith("fam_")) {
+      const parts = interaction.customId.split("_"); // fam_type_yes_a_b or fam_type_no_a_b
+      const type = parts[1]; // marry/adopt/divorce
+      const decision = parts[2]; // yes/no
+      const a = parts[3];
+      const b = parts[4];
+
+      const key = interaction.customId;
+      const pf = pendingFamily[key];
+      if (!pf) {
+        return interaction.reply({ content: "this confirmation is dead, bitch.", ephemeral: true });
+      }
+
+      if (pf.expiresAt <= Date.now()) {
+        delete pendingFamily[key];
+        return interaction.reply({ content: "too late bitch, time ran out.", ephemeral: true });
+      }
+
+      if (type === "marry" || type === "adopt") {
+        if (decision === "yes") {
+          if (type === "marry") {
+            if (!familyData.marriages.find(m => (m.a === a && m.b === b) || (m.a === b && m.b === a))) {
+              familyData.marriages.push({ a, b });
+              saveJson("family.json", familyData);
+            }
+          } else if (type === "adopt") {
+            if (!familyData.parents.find(p => p.parent === a && p.child === b)) {
+              familyData.parents.push({ parent: a, child: b });
+              saveJson("family.json", familyData);
+            }
+          }
+          const embed = new EmbedBuilder()
+            .setColor("#00FF00")
+            .setDescription(`✔ confirmed, bitch.`)
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          await interaction.update({ embeds: [embed], components: [] });
+        } else {
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription("❌ rejected, bitch.")
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          await interaction.update({ embeds: [embed], components: [] });
+        }
+      } else if (type === "divorce") {
+        if (decision === "yes") {
+          familyData.marriages = familyData.marriages.filter(
+            m => !((m.a === a && m.b === b) || (m.a === b && m.b === a))
+          );
+          saveJson("family.json", familyData);
+          const embed = new EmbedBuilder()
+            .setColor("#00FF00")
+            .setDescription(`✔ divorce confirmed, bitch.`)
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          await interaction.update({ embeds: [embed], components: [] });
+        } else {
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription("❌ divorce cancelled, bitch.")
+            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+          await interaction.update({ embeds: [embed], components: [] });
+        }
+      }
+
+      delete pendingFamily[key];
+      return;
     }
 
     // REACTION ROLE BUTTON
@@ -768,9 +1012,17 @@ client.on("interactionCreate", async (interaction) => {
             "/adopt",
             "/abandon",
             "/familytree",
-            "/leaderboard messages",
+            "/leaderboard messages/economy",
             "/stats",
-            "/xp delete"
+            "/xp delete",
+            "/work",
+            "/crime",
+            "/slut",
+            "/blackjack",
+            "/rob",
+            "/withdraw",
+            "/deposit",
+            "/purge"
           ].join("\n")
         )
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
@@ -900,63 +1152,6 @@ client.on("interactionCreate", async (interaction) => {
         botLocked = false;
         return interaction.reply("🔓 bot unlocked bitch");
       }
-    }
-
-    // announcement
-    if (interaction.commandName === "announcement") {
-      let member = await guild.members.fetch(interaction.user.id);
-      if (!member.roles.cache.has(PERMISSION_ROLE)) {
-        const errorEmbed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription("❌ no perms bitch")
-          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-        return interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-      }
-
-      const title = interaction.options.getString("title");
-      const description = interaction.options.getString("description");
-      const pingType = interaction.options.getString("ping");
-
-      let ping = "";
-      if (pingType === "everyone") ping = "@everyone";
-      if (pingType === "events") ping = `<@&${EVENTS_ROLE}>`;
-
-      const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(description)
-        .setColor("#ED0000")
-        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-      const channel = await interaction.client.channels.fetch(ANNOUNCE_CHANNEL).catch(() => null);
-      if (!channel) {
-        return interaction.reply({
-          content: "announcement channel not found bitch",
-          ephemeral: true
-        });
-      }
-
-      const serverNickname = member.displayName;
-      const announcerComponent = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("announcer_display")
-          .setLabel(`Announcer: ${serverNickname}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true)
-      );
-
-      await channel.send({
-        content: ping,
-        embeds: [embed],
-        components: [announcerComponent]
-      });
-
-      const confirmEmbed = new EmbedBuilder()
-        .setColor("#00FF00")
-        .setDescription("✔ successfully sent bitch")
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-      await interaction.reply({ embeds: [confirmEmbed] });
     }
 
     // MODERATION: kick
@@ -1126,51 +1321,125 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // FAMILY: marry
+    // FAMILY: marry (confirmation)
     if (interaction.commandName === "marry") {
       const target = interaction.options.getUser("user");
       const a = interaction.user.id;
       const b = target.id;
-      if (!familyData.marriages.find(m => (m.a === a && m.b === b) || (m.a === b && m.b === a))) {
-        familyData.marriages.push({ a, b });
-        saveJson("family.json", familyData);
-      }
+
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
-        .setDescription(`✔ <@${a}> married <@${b}> , bitch.`)
+        .setDescription(`<@${a}> wants to marry <@${b}>, bitch.`)
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-      return interaction.reply({ embeds: [embed] });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`fam_marry_yes_${a}_${b}`)
+          .setLabel("Yes")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`fam_marry_no_${a}_${b}`)
+          .setLabel("No")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      const msg = await interaction.reply({
+        content: `<@${a}> <@${b}>`,
+        embeds: [embed],
+        components: [row],
+        fetchReply: true
+      });
+
+      pendingFamily[`fam_marry_yes_${a}_${b}`] = {
+        type: "marry",
+        a,
+        b,
+        msgId: msg.id,
+        guildId: guild.id,
+        channelId: msg.channel.id,
+        expiresAt: Date.now() + 2 * 60 * 1000
+      };
+      pendingFamily[`fam_marry_no_${a}_${b}`] = pendingFamily[`fam_marry_yes_${a}_${b}`];
     }
 
-    // FAMILY: divorce
+    // FAMILY: adopt (confirmation)
+    if (interaction.commandName === "adopt") {
+      const child = interaction.options.getUser("user");
+      const parent = interaction.user.id;
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(`<@${parent}> wants to adopt <@${child.id}>, bitch.`)
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`fam_adopt_yes_${parent}_${child.id}`)
+          .setLabel("Yes")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`fam_adopt_no_${parent}_${child.id}`)
+          .setLabel("No")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      const msg = await interaction.reply({
+        content: `<@${parent}> <@${child.id}>`,
+        embeds: [embed],
+        components: [row],
+        fetchReply: true
+      });
+
+      pendingFamily[`fam_adopt_yes_${parent}_${child.id}`] = {
+        type: "adopt",
+        a: parent,
+        b: child.id,
+        msgId: msg.id,
+        guildId: guild.id,
+        channelId: msg.channel.id,
+        expiresAt: Date.now() + 2 * 60 * 1000
+      };
+      pendingFamily[`fam_adopt_no_${parent}_${child.id}`] = pendingFamily[`fam_adopt_yes_${parent}_${child.id}`];
+    }
+
+    // FAMILY: divorce (confirmation only for executor)
     if (interaction.commandName === "divorce") {
       const target = interaction.options.getUser("user");
       const a = interaction.user.id;
       const b = target.id;
-      familyData.marriages = familyData.marriages.filter(
-        m => !((m.a === a && m.b === b) || (m.a === b && m.b === a))
-      );
-      saveJson("family.json", familyData);
-      const embed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription(`✔ <@${a}> divorced <@${b}> , bitch.`)
-        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-      return interaction.reply({ embeds: [embed] });
-    }
 
-    // FAMILY: adopt
-    if (interaction.commandName === "adopt") {
-      const child = interaction.options.getUser("user");
-      const parent = interaction.user.id;
-      if (!familyData.parents.find(p => p.parent === parent && p.child === child.id)) {
-        familyData.parents.push({ parent, child: child.id });
-        saveJson("family.json", familyData);
-      }
       const embed = new EmbedBuilder()
         .setColor("#ED0000")
-        .setDescription(`✔ <@${parent}> adopted <@${child.id}> , bitch.`)
+        .setDescription(`you sure you wanna divorce <@${b}>, bitch?`)
         .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-      return interaction.reply({ embeds: [embed] });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`fam_divorce_yes_${a}_${b}`)
+          .setLabel("Yes")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`fam_divorce_no_${a}_${b}`)
+          .setLabel("No")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      const msg = await interaction.reply({
+        embeds: [embed],
+        components: [row],
+        fetchReply: true
+      });
+
+      pendingFamily[`fam_divorce_yes_${a}_${b}`] = {
+        type: "divorce",
+        a,
+        b,
+        msgId: msg.id,
+        guildId: guild.id,
+        channelId: msg.channel.id,
+        expiresAt: Date.now() + 2 * 60 * 1000
+      };
+      pendingFamily[`fam_divorce_no_${a}_${b}`] = pendingFamily[`fam_divorce_yes_${a}_${b}`];
     }
 
     // FAMILY: abandon
@@ -1246,6 +1515,31 @@ client.on("interactionCreate", async (interaction) => {
           .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
 
         return interaction.reply({ embeds: [embed] });
+      } else if (type === "economy") {
+        const entries = Object.entries(economyData.users)
+          .sort((a, b) => (b[1].wallet + b[1].bank) - (a[1].wallet + a[1].bank))
+          .slice(0, 10);
+
+        if (entries.length === 0) {
+          return interaction.reply({
+            content: "no turds yet bitch.",
+            ephemeral: true
+          });
+        }
+
+        let desc = "";
+        entries.forEach(([uid, data], i) => {
+          const total = data.wallet + data.bank;
+          desc += `**${i + 1}.** <@${uid}> – ${total} turds (wallet: ${data.wallet}, bank: ${data.bank})\n`;
+        });
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Richest bitches – economy")
+          .setDescription(desc)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+        return interaction.reply({ embeds: [embed] });
       }
     }
 
@@ -1315,6 +1609,230 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+    // ECONOMY: work
+    if (interaction.commandName === "work") {
+      const uid = interaction.user.id;
+      if (!canUse(uid, "work", 5 * 1000)) {
+        return interaction.reply({ content: "slow down bitch, work cooldown.", ephemeral: true });
+      }
+      const eco = getEcoUser(uid);
+      const amount = Math.floor(Math.random() * 41) + 10; // 10-50
+      eco.wallet += amount;
+      saveJson("economy.json", economyData);
+
+      const messages = [
+        `you cleaned toilets and earned **${amount} turds**, bitch.`,
+        `you sold your dignity for **${amount} turds**, bitch.`,
+        `you worked like a dog and got **${amount} turds**, bitch.`,
+        `you did some shady shit and earned **${amount} turds**, bitch.`
+      ];
+      const msg = messages[Math.floor(Math.random() * messages.length)];
+
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(msg)
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // ECONOMY: crime
+    if (interaction.commandName === "crime") {
+      const uid = interaction.user.id;
+      if (!canUse(uid, "crime", 60 * 1000)) {
+        return interaction.reply({ content: "cooldown, bitch. crime later.", ephemeral: true });
+      }
+      const eco = getEcoUser(uid);
+      const success = Math.random() < 0.7; // 70% success
+      if (success) {
+        const amount = Math.floor(Math.random() * 901) + 100; // 100-1000
+        eco.wallet += amount;
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you committed crime and got **${amount} turds**, bitch.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      } else {
+        const fine = Math.floor(Math.random() * 901) + 100; // 100-1000
+        eco.wallet = Math.max(0, eco.wallet - fine);
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you got caught, bitch. fine: **${fine} turds**.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      }
+    }
+
+    // ECONOMY: slut
+    if (interaction.commandName === "slut") {
+      const uid = interaction.user.id;
+      if (!canUse(uid, "slut", 2 * 60 * 1000)) {
+        return interaction.reply({ content: "cooldown, bitch. slut later.", ephemeral: true });
+      }
+      const eco = getEcoUser(uid);
+      const success = Math.random() < 0.4; // 40% success
+      if (success) {
+        const amount = Math.floor(Math.random() * 3001) + 2000; // 2000-5000
+        eco.wallet += amount;
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you slutted around and earned **${amount} turds**, bitch.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      } else {
+        const fine = Math.floor(Math.random() * 50001) + 10000; // 10k-60k
+        eco.wallet = Math.max(0, eco.wallet - fine);
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you got fined for being a slut, bitch. fine: **${fine} turds**.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      }
+    }
+
+    // ECONOMY: blackjack (simple random)
+    if (interaction.commandName === "blackjack") {
+      const uid = interaction.user.id;
+      if (!canUse(uid, "blackjack", 5 * 60 * 1000)) {
+        return interaction.reply({ content: "cooldown, bitch. blackjack later.", ephemeral: true });
+      }
+      const eco = getEcoUser(uid);
+      const win = Math.random() < 0.5;
+      const amount = Math.floor(Math.random() * 901) + 100; // 100-1000
+      if (win) {
+        eco.wallet += amount;
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you won blackjack and got **${amount} turds**, bitch.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        saveJson("economy.json", economyData);
+        return interaction.reply({ embeds: [embed] });
+      } else {
+        eco.wallet = Math.max(0, eco.wallet - amount);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you lost blackjack and lost **${amount} turds**, bitch.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        saveJson("economy.json", economyData);
+        return interaction.reply({ embeds: [embed] });
+      }
+    }
+
+    // ECONOMY: rob
+    if (interaction.commandName === "rob") {
+      const uid = interaction.user.id;
+      if (!canUse(uid, "rob", 15 * 60 * 1000)) {
+        return interaction.reply({ content: "cooldown, bitch. rob later.", ephemeral: true });
+      }
+      const target = interaction.options.getUser("user");
+      if (target.id === uid) {
+        return interaction.reply({ content: "you cant rob yourself, bitch.", ephemeral: true });
+      }
+      const eco = getEcoUser(uid);
+      const targetEco = getEcoUser(target.id);
+
+      if (targetEco.wallet <= 0) {
+        return interaction.reply({ content: "this bitch has no wallet money.", ephemeral: true });
+      }
+
+      const outcome = Math.random();
+      if (outcome < 0.3) {
+        const fine = Math.floor(Math.random() * 501) + 100; // 100-600
+        eco.wallet = Math.max(0, eco.wallet - fine);
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you got caught robbing, bitch. fine: **${fine} turds**.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      } else if (outcome < 0.7) {
+        const amount = Math.floor(targetEco.wallet * 0.3); // 30% of wallet
+        if (amount <= 0) {
+          return interaction.reply({ content: "nothing to steal, bitch.", ephemeral: true });
+        }
+        targetEco.wallet -= amount;
+        eco.wallet += amount;
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you stole **${amount} turds** from <@${target.id}>, bitch.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      } else {
+        const amount = targetEco.wallet; // all wallet
+        targetEco.wallet = 0;
+        eco.wallet += amount;
+        saveJson("economy.json", economyData);
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`you robbed this bitch dry and stole **${amount} turds**, bitch.`)
+          .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+        return interaction.reply({ embeds: [embed] });
+      }
+    }
+
+    // ECONOMY: withdraw
+    if (interaction.commandName === "withdraw") {
+      const amount = interaction.options.getInteger("amount");
+      if (amount <= 0) {
+        return interaction.reply({ content: "nice try bitch, use positive amount.", ephemeral: true });
+      }
+      const eco = getEcoUser(interaction.user.id);
+      if (eco.bank < amount) {
+        return interaction.reply({ content: "not enough in bank, bitch.", ephemeral: true });
+      }
+      eco.bank -= amount;
+      eco.wallet += amount;
+      saveJson("economy.json", economyData);
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(`you withdrew **${amount} turds** from bank, bitch.`)
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // ECONOMY: deposit
+    if (interaction.commandName === "deposit") {
+      const amount = interaction.options.getInteger("amount");
+      if (amount <= 0) {
+        return interaction.reply({ content: "nice try bitch, use positive amount.", ephemeral: true });
+      }
+      const eco = getEcoUser(interaction.user.id);
+      if (eco.wallet < amount) {
+        return interaction.reply({ content: "not enough in wallet, bitch.", ephemeral: true });
+      }
+      eco.wallet -= amount;
+      eco.bank += amount;
+      saveJson("economy.json", economyData);
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(`you deposited **${amount} turds** to bank, bitch.`)
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // PURGE
+    if (interaction.commandName === "purge") {
+      let member = await guild.members.fetch(interaction.user.id);
+      if (!member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+        return interaction.reply({ content: "no perms bitch", ephemeral: true });
+      }
+      const amount = interaction.options.getInteger("amount");
+      if (amount < 1 || amount > 100) {
+        return interaction.reply({ content: "amount must be 1-100, bitch.", ephemeral: true });
+      }
+      await interaction.channel.bulkDelete(amount, true).catch(() => {});
+      const embed = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription(`✔ purged **${amount}** messages, bitch.`)
+        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
   } catch (err) {
     console.error("interaction error:", err);
     if (interaction.replied || interaction.deferred) {
@@ -1332,12 +1850,11 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ===============================
-// MESSAGE HANDLER – XP, GROUND
+// MESSAGE HANDLER – XP, GROUND, DM PIC
 // ===============================
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild) {
-      // DM pic submit
       if (picSubmitUsers.has(msg.author.id)) {
         if (!msg.attachments || msg.attachments.size === 0) {
           return msg.reply("bitch send a **picture**, not empty air");
@@ -1376,7 +1893,6 @@ client.on("messageCreate", async (msg) => {
     // GROUND CHECK
     const g = groundData.users[msg.author.id];
     if (g && g.until > Date.now()) {
-      // delete message
       await msg.delete().catch(() => {});
       return;
     }
@@ -1396,7 +1912,6 @@ client.on("messageCreate", async (msg) => {
     userData.xp += xpGain;
     userData.messages += 1;
 
-    // role update
     let currentIndex = 0;
     for (let i = 0; i < XP_THRESHOLDS.length; i++) {
       if (userData.xp >= XP_THRESHOLDS[i].xp) currentIndex = i;
@@ -1405,7 +1920,6 @@ client.on("messageCreate", async (msg) => {
 
     const member = msg.member;
     if (member) {
-      // remove all level roles, then add current
       const levelRoles = XP_THRESHOLDS.map(r => r.role);
       for (const r of levelRoles) {
         if (member.roles.cache.has(r) && r !== current.role) {
@@ -1415,7 +1929,6 @@ client.on("messageCreate", async (msg) => {
       if (!member.roles.cache.has(current.role)) {
         await member.roles.add(current.role).catch(() => {});
 
-        // announce level up
         const channel = msg.guild.channels.cache.get(LEVEL_CHANNEL);
         if (channel) {
           const next = XP_THRESHOLDS[currentIndex + 1] || current;
