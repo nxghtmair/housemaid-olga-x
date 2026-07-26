@@ -71,6 +71,9 @@ let statusConfig = {
 
 let blackjackGames = {};
 
+const picSubmitUsers = new Set();
+const annoySessions = {}; // key: userId, value: { intervalId, endAt }
+
 const {
   Client,
   GatewayIntentBits,
@@ -144,13 +147,31 @@ const XP_THRESHOLDS = [
   { role: ROLE_TOP, xp: 10000 }
 ];
 
+const ANNOY_ROLE = "1527339182668910774";
+
 let deadchatEnabled = false;
 let botLocked = false;
 let roastEnabled = false;
 
-const picSubmitUsers = new Set();
-
 const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
+
+const ROAST_LINES = [
+  "go work out, bitch.",
+  "go lose some weight, bitch.",
+  "you look like a walking donut, go gym.",
+  "cardio, bitch. now.",
+  "your body screams help, go lift.",
+  "your lifestyle is a medical emergency, bitch.",
+  "your resting heart rate is a cry for help, bitch.",
+  "you wheeze walking up one stair, go gym, bitch.",
+  "your spine is shaped like a question mark, fix it, bitch.",
+  "your body is writing a horror story, go lift, bitch.",
+  "you look like you breathe in mayonnaise, bitch.",
+  "your blood type is probably sugar-free energy drink, bitch.",
+  "your knees are begging for mercy, go gym, bitch.",
+  "your posture screams \"I sit all day\", fix it, bitch.",
+  "your reflection is asking you to touch grass, bitch."
+];
 
 // ===============================
 // HELPERS
@@ -233,6 +254,10 @@ function makeEmbed(description, title = null) {
   return embed;
 }
 
+function getRandomRoast() {
+  return ROAST_LINES[Math.floor(Math.random() * ROAST_LINES.length)];
+}
+
 // ===============================
 // READY
 // ===============================
@@ -246,7 +271,6 @@ client.once("ready", async () => {
     activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.7 ࿐ྂ", type: 1 }]
   });
 
-  // SLASH COMMANDS
   await client.application.commands.set([
     new SlashCommandBuilder()
       .setName("announcement")
@@ -457,6 +481,27 @@ client.once("ready", async () => {
       .setDescription("purge messages")
       .addIntegerOption(o =>
         o.setName("amount").setDescription("amount (1-100)").setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("annoy")
+      .setDescription("annoy a bitch")
+      .addSubcommand(s =>
+        s.setName("start")
+          .setDescription("start annoying a bitch")
+          .addUserOption(o =>
+            o.setName("user").setDescription("target").setRequired(true)
+          )
+          .addIntegerOption(o =>
+            o.setName("duration").setDescription("duration in seconds").setRequired(true)
+          )
+      )
+      .addSubcommand(s =>
+        s.setName("end")
+          .setDescription("stop annoying a bitch")
+          .addUserOption(o =>
+            o.setName("user").setDescription("target").setRequired(true)
+          )
       )
   ]);
 
@@ -470,7 +515,7 @@ client.once("ready", async () => {
       if (!channel) return;
 
       const embed = makeEmbed(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`);
-      await channel.send({ embeds: [embed] });
+      await channel.send({ content: `<@&${DEADCHAT_ROLE}>`, embeds: [embed] });
     } catch (err) {
       console.error("Deadchat:", err);
     }
@@ -498,7 +543,10 @@ client.once("ready", async () => {
         )
         .setFooter({ text: FOOTER_TEXT });
 
-      await channel.send({ embeds: [embed] });
+      await channel.send({
+        content: `<@&${DAILY_ROLE}>`,
+        embeds: [embed]
+      });
     }
   }, 60 * 1000);
 
@@ -521,7 +569,7 @@ client.once("ready", async () => {
               `<@${member.id}> is now <@&${ROLE_BASE}>`
             )
             .setFooter({ text: FOOTER_TEXT });
-          await channel.send({ embeds: [embed] });
+          await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
         }
       }
     }
@@ -573,7 +621,7 @@ client.once("ready", async () => {
             )
             .setFooter({ text: FOOTER_TEXT });
 
-          await channel.send({ embeds: [embed] });
+          await channel.send({ content: `<@${newMember.id}>`, embeds: [embed] });
         }
       }
     } catch (e) {
@@ -581,7 +629,7 @@ client.once("ready", async () => {
     }
   }, 10 * 60 * 1000);
 
-  // ROAST LOOP
+  // ROAST LOOP – every 2 minutes, harsher, ping target
   setInterval(async () => {
     if (!roastEnabled) return;
     try {
@@ -595,21 +643,19 @@ client.once("ready", async () => {
         const channel = guild.channels.cache.get(CHAT_XP_CHANNEL);
         if (!channel) continue;
 
-        const randomRoast = [
-          "go work out, bitch.",
-          "go lose some weight, bitch.",
-          "you look like a walking donut, go gym.",
-          "cardio, bitch. now.",
-          "your body screams help, go lift."
-        ][Math.floor(Math.random() * 5)];
+        const randomRoast = getRandomRoast();
 
-        const embed = makeEmbed(`<@${target.id}> ${randomRoast}`);
-        await channel.send({ embeds: [embed] });
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setDescription(`<@${target.id}> ${randomRoast}`)
+          .setFooter({ text: FOOTER_TEXT });
+
+        await channel.send({ content: `<@${target.id}>`, embeds: [embed] });
       }
     } catch (e) {
       console.error("Roast loop error:", e);
     }
-  }, 5 * 60 * 1000);
+  }, 2 * 60 * 1000);
 
   // FAMILY CONFIRMATION TIMEOUT
   setInterval(async () => {
@@ -1199,7 +1245,7 @@ client.on("interactionCreate", async (interaction) => {
             "/kick, /ban, /warn, /warnlogs, /ground, /unground, /roast,\n" +
             "/marry, /divorce, /adopt, /abandon, /familytree,\n" +
             "/leaderboard, /stats, /xp delete,\n" +
-            "/work, /crime, /slut, /blackjack, /rob, /cash, /roll, /purge.\n\n" +
+            "/work, /crime, /slut, /blackjack, /rob, /cash, /roll, /purge, /annoy.\n\n" +
             "figure it out, bitch."
           )
           .setFooter({ text: FOOTER_TEXT });
@@ -1231,23 +1277,35 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // PIC SUBMIT
+      // PIC SUBMIT – DM FLOW
       if (commandName === "pic") {
         const sub = interaction.options.getSubcommand();
         if (sub === "submit") {
-          const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
-          if (!channel) {
-            const e = makeEmbed("pic channel is dead, bitch.");
-            return interaction.reply({ embeds: [e] });
+          try {
+            const dmEmbed = new EmbedBuilder()
+              .setColor("#ED0000")
+              .setTitle("Pic submission, bitch.")
+              .setDescription("send the pic, bitch.")
+              .setFooter({ text: FOOTER_TEXT });
+
+            await interaction.user.send({ embeds: [dmEmbed] });
+
+            picSubmitUsers.add(interaction.user.id);
+
+            const confirmEmbed = new EmbedBuilder()
+              .setColor("#ED0000")
+              .setDescription("check your DMs, bitch.")
+              .setFooter({ text: FOOTER_TEXT });
+
+            return interaction.reply({ embeds: [confirmEmbed] });
+          } catch (err) {
+            const failEmbed = new EmbedBuilder()
+              .setColor("#ED0000")
+              .setDescription("your DMs are closed, bitch.")
+              .setFooter({ text: FOOTER_TEXT });
+
+            return interaction.reply({ embeds: [failEmbed] });
           }
-
-          picSubmitUsers.add(interaction.user.id);
-
-          const embed = makeEmbed(`<@${interaction.user.id}> dropped a pic suggestion, bitch.`);
-          await channel.send({ embeds: [embed] });
-
-          const replyEmbed = makeEmbed("pic suggestion sent, bitch.");
-          return interaction.reply({ embeds: [replyEmbed] });
         }
       }
 
@@ -2004,6 +2062,79 @@ client.on("interactionCreate", async (interaction) => {
         const e = makeEmbed(`purged ${amount} messages, bitch.`);
         return interaction.reply({ embeds: [e] });
       }
+
+      // ANNOY
+      if (commandName === "annoy") {
+        const sub = interaction.options.getSubcommand();
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        if (!member || !member.roles.cache.has(ANNOY_ROLE)) {
+          const e = makeEmbed("nice try bitch, but ur a bit too young for that.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        if (sub === "start") {
+          const target = interaction.options.getUser("user");
+          const duration = interaction.options.getInteger("duration");
+
+          if (duration <= 0) {
+            const e = makeEmbed("use a real duration, bitch.");
+            return interaction.reply({ embeds: [e] });
+          }
+
+          const guild = interaction.guild;
+          const channel = guild.channels.cache.get(CHAT_XP_CHANNEL);
+          if (!channel) {
+            const e = makeEmbed("annoy channel is dead, bitch.");
+            return interaction.reply({ embeds: [e] });
+          }
+
+          if (annoySessions[target.id]) {
+            const e = makeEmbed("they already getting annoyed, bitch.");
+            return interaction.reply({ embeds: [e] });
+          }
+
+          const endAt = Date.now() + duration * 1000;
+
+          const intervalId = setInterval(async () => {
+            if (Date.now() >= endAt) {
+              clearInterval(intervalId);
+              delete annoySessions[target.id];
+              return;
+            }
+
+            const roast = getRandomRoast();
+            const embed = new EmbedBuilder()
+              .setColor("#ED0000")
+              .setDescription(`<@${target.id}> ${roast}`)
+              .setFooter({ text: FOOTER_TEXT });
+
+            await channel.send({ content: `<@${target.id}>`, embeds: [embed] }).catch(() => {});
+          }, 1000);
+
+          annoySessions[target.id] = { intervalId, endAt };
+
+          const e = makeEmbed(
+            `started annoying <@${target.id}> for ${duration} seconds, bitch.`
+          );
+          return interaction.reply({ embeds: [e] });
+        }
+
+        if (sub === "end") {
+          const target = interaction.options.getUser("user");
+
+          const session = annoySessions[target.id];
+          if (!session) {
+            const e = makeEmbed("they ain't being annoyed right now, bitch.");
+            return interaction.reply({ embeds: [e] });
+          }
+
+          clearInterval(session.intervalId);
+          delete annoySessions[target.id];
+
+          const e = makeEmbed(`stopped annoying <@${target.id}>, bitch.`);
+          return interaction.reply({ embeds: [e] });
+        }
+      }
     }
 
   } catch (err) {
@@ -2018,11 +2149,57 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ===============================
-// MESSAGE CREATE
+// MESSAGE CREATE (DM + XP)
 // ===============================
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
 
+  // DM flow for pic suggestions
+  if (!msg.guild) {
+    if (!picSubmitUsers.has(msg.author.id)) return;
+
+    if (!msg.attachments || msg.attachments.size === 0) {
+      const e = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription("send a pic, bitch.")
+        .setFooter({ text: FOOTER_TEXT });
+      return msg.reply({ embeds: [e] });
+    }
+
+    const attachment = msg.attachments.first();
+    if (!attachment.contentType || !attachment.contentType.startsWith("image")) {
+      const e = new EmbedBuilder()
+        .setColor("#ED0000")
+        .setDescription("that ain't a pic, bitch.")
+        .setFooter({ text: FOOTER_TEXT });
+      return msg.reply({ embeds: [e] });
+    }
+
+    picSubmitUsers.delete(msg.author.id);
+
+    const dmConfirm = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setDescription("pic submitted, bitch.")
+      .setFooter({ text: FOOTER_TEXT });
+
+    await msg.reply({ embeds: [dmConfirm] });
+
+    const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
+    if (!channel) return;
+
+    const postEmbed = new EmbedBuilder()
+      .setColor("#ED0000")
+      .setTitle("New pic suggestion")
+      .setDescription(`suggested by <@${msg.author.id}>`)
+      .setImage(attachment.url)
+      .setFooter({ text: FOOTER_TEXT })
+      .setTimestamp();
+
+    await channel.send({ embeds: [postEmbed] });
+    return;
+  }
+
+  // Guild XP system
   try {
     const guild = msg.guild;
     if (!guild) return;
@@ -2061,7 +2238,7 @@ client.on("messageCreate", async (msg) => {
               `now rocking <@&${threshold.role}>`
             )
             .setFooter({ text: FOOTER_TEXT });
-          await channel.send({ embeds: [embed] });
+          await channel.send({ content: `<@${msg.author.id}>`, embeds: [embed] });
         }
       }
     }
