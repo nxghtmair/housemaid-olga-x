@@ -31,49 +31,27 @@ function saveJson(path, data) {
 // PERSISTENT DATA
 // ===============================
 let xpData = loadJson("xpData.json", {
-  users: {},        // userId: { xp, messages, levelIndex }
-  bestUserId: null,
-  bestSince: null
+  users: {} // userId: { xp, messages }
 });
 
-let warnsData = loadJson("warns.json", {
-  users: {}         // userId: [{ moderatorId, reason, timestamp }]
-});
-
-let familyData = loadJson("family.json", {
-  marriages: [],    // { a, b }
-  parents: []       // { parent, child }
-});
-
-let groundData = loadJson("ground.json", {
-  users: {}         // userId: { until, reason }
-});
-
-let dailyStreakData = loadJson("streak.json", { dailyStreak: 0 });
-let dailyStreak = dailyStreakData.dailyStreak || 0;
-
-// ECONOMY PERSISTENCE
 let economyData = loadJson("economy.json", {
-  users: {}         // userId: { wallet, bank }
+  users: {} // userId: { wallet, bank }
 });
 
-let cooldowns = {};
-let pendingFamily = {};
-let misuseCounts = {};
-let statusConfig = {
-  channelId: null,
-  messageId: null,
-  operational: "",
-  error: "",
-  shutdown: "",
-  image: null
-};
+let jobsData = loadJson("jobs.json", {
+  users: {} // userId: { job: "cook" | null, lastActivity, completedOrders }
+});
 
-let blackjackGames = {};
+let ordersData = loadJson("orders.json", {
+  nextId: 1,
+  orders: [] // { id, userId, food, status, cookId, createdAt, deliveredAt }
+});
 
-const picSubmitUsers = new Set();
-const annoySessions = {}; // key: userId, value: { intervalId, endAt }
+const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
 
+// ===============================
+// DISCORD CLIENT
+// ===============================
 const {
   Client,
   GatewayIntentBits,
@@ -82,10 +60,10 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle,
-  PermissionsBitField
+  TextInputStyle
 } = require("discord.js");
 
 if (!process.env.TOKEN) {
@@ -106,76 +84,40 @@ const client = new Client({
 // ===============================
 // CONFIG
 // ===============================
-const ANNOUNCE_CHANNEL = "1513932745854816356";
-const EVENTS_ROLE = "1527338030531084498";
-const PERMISSION_ROLE = "1530115234767966340";
-
-const EVENTS_TEXT_CHANNEL = "1527334173982064650";
-const ANNOUNCEMENTS_TEXT_CHANNEL = "1513932745854816356";
-
-const DEADCHAT_ROLE = "1530138181490577558";
-const DEADCHAT_CHANNEL = "1513932745854816356";
-const DEADCHAT_INTERVAL = 5 * 60 * 1000;
-
-const PIC_CHANNEL = "1530313495906750615";
-
-const DAILY_CHANNEL = "1517175386021040138";
-const DAILY_ROLE = "1530312898939977841";
-
-const BOT_MASTER = "1193517948401373257";
-
-const LEVEL_CHANNEL = "1517175386021040138";
-
 const CHAT_XP_CHANNEL = "1513932845922385920";
 const EXTRA_XP_CHANNEL = "1530116858760663151";
 
-const ROLE_TOP = "1530588478352654407";
-const ROLE_2 = "1530588534606528632";
-const ROLE_3 = "1530588669956722770";
-const ROLE_4 = "1530588839163199540";
-const ROLE_5 = "1530589017140236419";
-const ROLE_6 = "1530588907509514360";
-const ROLE_BASE = "1530590724192473240";
+const LEVEL_CHANNEL = "1517175386021040138";
+
+const ORDER_CHANNEL = "1530750401995866312";
+const COOK_ROLE = "1530751512752558131";
+
+const SALARY_CHANNEL = "1517175386021040138";
+
+const BOT_MASTER = "1193517948401373257";
 
 const XP_THRESHOLDS = [
-  { role: ROLE_BASE, xp: 0 },
-  { role: ROLE_6, xp: 500 },
-  { role: ROLE_5, xp: 1000 },
-  { role: ROLE_4, xp: 1500 },
-  { role: ROLE_3, xp: 2000 },
-  { role: ROLE_2, xp: 3000 },
-  { role: ROLE_TOP, xp: 10000 }
-];
-
-const ANNOY_ROLE = "1527339182668910774";
-
-let deadchatEnabled = false;
-let botLocked = false;
-let roastEnabled = false;
-
-const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
-
-const ROAST_LINES = [
-  "go work out, bitch.",
-  "go lose some weight, bitch.",
-  "you look like a walking donut, go gym.",
-  "cardio, bitch. now.",
-  "your body screams help, go lift.",
-  "your lifestyle is a medical emergency, bitch.",
-  "your resting heart rate is a cry for help, bitch.",
-  "you wheeze walking up one stair, go gym, bitch.",
-  "your spine is shaped like a question mark, fix it, bitch.",
-  "your body is writing a horror story, go lift, bitch.",
-  "you look like you breathe in mayonnaise, bitch.",
-  "your blood type is probably sugar-free energy drink, bitch.",
-  "your knees are begging for mercy, go gym, bitch.",
-  "your posture screams \"I sit all day\", fix it, bitch.",
-  "your reflection is asking you to touch grass, bitch."
+  { xp: 0 },
+  { xp: 500 },
+  { xp: 1000 },
+  { xp: 1500 },
+  { xp: 2000 },
+  { xp: 3000 },
+  { xp: 10000 }
 ];
 
 // ===============================
 // HELPERS
 // ===============================
+function makeEmbed(description, title = null) {
+  const embed = new EmbedBuilder()
+    .setColor("#ED0000")
+    .setDescription(description)
+    .setFooter({ text: FOOTER_TEXT });
+  if (title) embed.setTitle(title);
+  return embed;
+}
+
 function getEcoUser(id) {
   if (!economyData.users[id]) {
     economyData.users[id] = { wallet: 0, bank: 0 };
@@ -184,45 +126,20 @@ function getEcoUser(id) {
   return economyData.users[id];
 }
 
-function canUse(userId, cmd, ms) {
-  const now = Date.now();
-  if (!cooldowns[userId]) cooldowns[userId] = {};
-  const last = cooldowns[userId][cmd] || 0;
-  if (now - last < ms) return false;
-  cooldowns[userId][cmd] = now;
-  return true;
-}
-
-// Blackjack helpers
-function bjDrawCard() {
-  const values = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  return values[Math.floor(Math.random() * values.length)];
-}
-
-function bjHandValue(hand) {
-  let sum = hand.reduce((a, b) => a + b, 0);
-  let aces = hand.filter(v => v === 11).length;
-  while (sum > 21 && aces > 0) {
-    sum -= 10;
-    aces--;
-  }
-  return sum;
-}
-
 function getXpUser(id) {
   if (!xpData.users[id]) {
-    xpData.users[id] = { xp: 0, messages: 0, levelIndex: 0 };
+    xpData.users[id] = { xp: 0, messages: 0 };
     saveJson("xpData.json", xpData);
   }
   return xpData.users[id];
 }
 
-function getLevelIndexFromXp(xp) {
-  let idx = 0;
-  for (let i = 0; i < XP_THRESHOLDS.length; i++) {
-    if (xp >= XP_THRESHOLDS[i].xp) idx = i;
+function getJobUser(id) {
+  if (!jobsData.users[id]) {
+    jobsData.users[id] = { job: null, lastActivity: 0, completedOrders: 0 };
+    saveJson("jobs.json", jobsData);
   }
-  return idx;
+  return jobsData.users[id];
 }
 
 function buildProgressBar(currentXp, currentThresholdXp, nextThresholdXp) {
@@ -245,17 +162,45 @@ function buildProgressBar(currentXp, currentThresholdXp, nextThresholdXp) {
   return `${bar} ${pctDisplay}%`;
 }
 
-function makeEmbed(description, title = null) {
-  const embed = new EmbedBuilder()
-    .setColor("#ED0000")
-    .setDescription(description)
-    .setFooter({ text: FOOTER_TEXT });
-  if (title) embed.setTitle(title);
-  return embed;
+function getLevelIndexFromXp(xp) {
+  let idx = 0;
+  for (let i = 0; i < XP_THRESHOLDS.length; i++) {
+    if (xp >= XP_THRESHOLDS[i].xp) idx = i;
+  }
+  return idx;
 }
 
-function getRandomRoast() {
-  return ROAST_LINES[Math.floor(Math.random() * ROAST_LINES.length)];
+function createOrder(userId, food) {
+  const id = ordersData.nextId++;
+  const order = {
+    id,
+    userId,
+    food,
+    status: "pending",
+    cookId: null,
+    createdAt: Date.now(),
+    deliveredAt: null
+  };
+  ordersData.orders.push(order);
+  saveJson("orders.json", ordersData);
+  return order;
+}
+
+function getPendingOrders() {
+  return ordersData.orders.filter(o => o.status === "pending");
+}
+
+function getCookCompletedOrders(cookId) {
+  return ordersData.orders.filter(o => o.cookId === cookId && o.status === "completed");
+}
+
+function randomCookPayment() {
+  const roll = Math.random();
+  if (roll <= 0.01) {
+    return { amount: 100, rare: true };
+  }
+  const amount = Math.floor(Math.random() * 15) + 1;
+  return { amount, rare: false };
 }
 
 // ===============================
@@ -264,428 +209,152 @@ function getRandomRoast() {
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  saveJson("xpData.json", xpData);
-
   await client.user.setPresence({
     status: "idle",
-    activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.7 ࿐ྂ", type: 1 }]
+    activities: [{ name: "⇢ ˗ˏˋ Olgasm; V0.8 ࿐ྂ", type: 1 }]
   });
 
+  // Slash commands
   await client.application.commands.set([
-    new SlashCommandBuilder()
-      .setName("announcement")
-      .setDescription("create announcement (modal)"),
-
-    new SlashCommandBuilder()
-      .setName("deadchat")
-      .setDescription("toggle deadchat")
-      .addStringOption(o =>
-        o.setName("mode")
-          .setDescription("on/off")
-          .addChoices({ name: "on", value: "on" }, { name: "off", value: "off" })
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder().setName("cmd").setDescription("show all commands"),
-
-    new SlashCommandBuilder()
-      .setName("deratization")
-      .setDescription("lock/unlock channel")
-      .addSubcommand(s => s.setName("start").setDescription("lock"))
-      .addSubcommand(s => s.setName("end").setDescription("unlock")),
-
-    new SlashCommandBuilder()
-      .setName("pic")
-      .setDescription("pic suggestion")
-      .addSubcommand(s => s.setName("submit").setDescription("submit a pic")),
-
-    new SlashCommandBuilder()
-      .setName("statuschannel")
-      .setDescription("configure status system")
-      .addSubcommand(s =>
-        s.setName("set")
-          .setDescription("set status channel")
-          .addAttachmentOption(o => o.setName("image").setDescription("optional image"))
-      ),
-
-    new SlashCommandBuilder().setName("shutdown").setDescription("shutdown"),
-
-    new SlashCommandBuilder()
-      .setName("bot")
-      .setDescription("lock/unlock bot")
-      .addSubcommand(s => s.setName("lock").setDescription("lock bot"))
-      .addSubcommand(s => s.setName("unlock").setDescription("unlock bot")),
-
-    new SlashCommandBuilder()
-      .setName("embed")
-      .setDescription("embed tools")
-      .addSubcommand(s =>
-        s.setName("create")
-          .setDescription("create embed")
-      )
-      .addSubcommand(s =>
-        s.setName("edit")
-          .setDescription("edit existing embed")
-          .addStringOption(o =>
-            o.setName("msgid")
-              .setDescription("Message ID of the embed")
-              .setRequired(true)
-          )
-      ),
-
-    new SlashCommandBuilder()
-      .setName("rolescreate")
-      .setDescription("create reaction roles")
-      .addStringOption(o =>
-        o.setName("msgid")
-          .setDescription("Message ID")
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName("emojis")
-          .setDescription("Emojis (comma separated)")
-          .setRequired(true)
-      )
-      .addRoleOption(o =>
-        o.setName("role1")
-          .setDescription("Role 1")
-          .setRequired(true)
-      )
-      .addRoleOption(o =>
-        o.setName("role2")
-          .setDescription("Role 2")
-      )
-      .addRoleOption(o =>
-        o.setName("role3")
-          .setDescription("Role 3")
-      ),
-
-    new SlashCommandBuilder()
-      .setName("kick")
-      .setDescription("kick a bitch")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
-      .addStringOption(o => o.setName("reason").setDescription("reason").setRequired(false)),
-
-    new SlashCommandBuilder()
-      .setName("ban")
-      .setDescription("ban a bitch")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
-      .addStringOption(o => o.setName("reason").setDescription("reason").setRequired(false)),
-
-    new SlashCommandBuilder()
-      .setName("warn")
-      .setDescription("warn a bitch")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
-      .addStringOption(o => o.setName("reason").setDescription("reason").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("warnlogs")
-      .setDescription("show warn logs")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("ground")
-      .setDescription("ground (mute) a bitch")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
-      .addIntegerOption(o => o.setName("duration").setDescription("minutes").setRequired(true))
-      .addStringOption(o => o.setName("reason").setDescription("reason").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("unground")
-      .setDescription("unground a bitch")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("roast")
-      .setDescription("toggle roast mode")
-      .addStringOption(o =>
-        o.setName("mode")
-          .setDescription("on/off")
-          .addChoices({ name: "on", value: "on" }, { name: "off", value: "off" })
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName("marry")
-      .setDescription("marry a bitch")
-      .addUserOption(o => o.setName("user").setDescription("partner").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("divorce")
-      .setDescription("divorce a bitch")
-      .addUserOption(o => o.setName("user").setDescription("partner").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("adopt")
-      .setDescription("adopt a bitch")
-      .addUserOption(o => o.setName("user").setDescription("child").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("abandon")
-      .setDescription("abandon a bitch")
-      .addUserOption(o => o.setName("user").setDescription("child").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("familytree")
-      .setDescription("show your family tree"),
-
+    // Leaderboard with subcommands
     new SlashCommandBuilder()
       .setName("leaderboard")
-      .setDescription("show leaderboard")
+      .setDescription("leaderboards, bitch.")
+      .addSubcommand(s =>
+        s.setName("economy")
+          .setDescription("economy leaderboard, bitch.")
+      )
+      .addSubcommand(s =>
+        s.setName("chat")
+          .setDescription("chat leaderboard, bitch.")
+      ),
+
+    // XP stats
+    new SlashCommandBuilder()
+      .setName("stats")
+      .setDescription("show your xp stats, bitch."),
+
+    // Economy cash
+    new SlashCommandBuilder()
+      .setName("cash")
+      .setDescription("show your filthy money, bitch."),
+
+    // Job list
+    new SlashCommandBuilder()
+      .setName("joblist")
+      .setDescription("see jobs, bitch."),
+
+    // Job panel
+    new SlashCommandBuilder()
+      .setName("jobpanel")
+      .setDescription("your job panel, bitch."),
+
+    // Order command
+    new SlashCommandBuilder()
+      .setName("order")
+      .setDescription("order food, bitch.")
       .addStringOption(o =>
-        o.setName("type")
-          .setDescription("messages/economy")
-          .addChoices(
-            { name: "messages", value: "messages" },
-            { name: "economy", value: "economy" }
-          )
+        o.setName("food")
+          .setDescription("desired food, bitch.")
           .setRequired(true)
       ),
 
+    // Shutdown (for master)
     new SlashCommandBuilder()
-      .setName("stats")
-      .setDescription("show your xp stats"),
-
-    new SlashCommandBuilder()
-      .setName("xp")
-      .setDescription("xp admin stuff")
-      .addSubcommand(s =>
-        s.setName("delete")
-          .setDescription("delete user xp")
-          .addUserOption(o => o.setName("user").setDescription("target").setRequired(true))
-      ),
-
-    new SlashCommandBuilder().setName("work").setDescription("work for turds"),
-    new SlashCommandBuilder().setName("crime").setDescription("commit crime for turds"),
-    new SlashCommandBuilder().setName("slut").setDescription("be a slut for turds"),
-    new SlashCommandBuilder().setName("blackjack").setDescription("play blackjack for turds"),
-
-    new SlashCommandBuilder()
-      .setName("rob")
-      .setDescription("rob a bitch")
-      .addUserOption(o => o.setName("user").setDescription("target").setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName("cash")
-      .setDescription("show your cash"),
-
-    new SlashCommandBuilder()
-      .setName("roll")
-      .setDescription("roll your money")
-      .addIntegerOption(o =>
-        o.setName("amount").setDescription("amount to roll").setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName("purge")
-      .setDescription("purge messages")
-      .addIntegerOption(o =>
-        o.setName("amount").setDescription("amount (1-100)").setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName("annoy")
-      .setDescription("annoy a bitch")
-      .addSubcommand(s =>
-        s.setName("start")
-          .setDescription("start annoying a bitch")
-          .addUserOption(o =>
-            o.setName("user").setDescription("target").setRequired(true)
-          )
-          .addIntegerOption(o =>
-            o.setName("duration").setDescription("duration in seconds").setRequired(true)
-          )
-      )
-      .addSubcommand(s =>
-        s.setName("end")
-          .setDescription("stop annoying a bitch")
-          .addUserOption(o =>
-            o.setName("user").setDescription("target").setRequired(true)
-          )
-      )
+      .setName("shutdown")
+      .setDescription("shutdown, bitch.")
   ]);
 
   console.log("Slash commands registered.");
 
-  // DEADCHAT LOOP
+  // HOURLY SALARY FOR COOKS
   setInterval(async () => {
-    if (!deadchatEnabled) return;
-    try {
-      const channel = await client.channels.fetch(DEADCHAT_CHANNEL).catch(() => null);
-      if (!channel) return;
-
-      const embed = makeEmbed(`<@&${DEADCHAT_ROLE}> -hears a pin fall- WAKE UP BITCHES`);
-      await channel.send({ content: `<@&${DEADCHAT_ROLE}>`, embeds: [embed] });
-    } catch (err) {
-      console.error("Deadchat:", err);
-    }
-  }, DEADCHAT_INTERVAL);
-
-  // DAILY WORDLE REMINDER
-  setInterval(async () => {
-    const now = new Date();
-    const estTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const hours = estTime.getHours();
-    const minutes = estTime.getMinutes();
-
-    if (hours === 18 && minutes === 15) {
-      dailyStreak++;
-      saveJson("streak.json", { dailyStreak });
-
-      const channel = await client.channels.fetch(DAILY_CHANNEL).catch(() => null);
-      if (!channel) return;
-
-      const embed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription(
-          "-burps- YO YO YO, another day another wordle 😆!\n\n" +
-          `**🔥 Current Streak : ${dailyStreak}**`
-        )
-        .setFooter({ text: FOOTER_TEXT });
-
-      await channel.send({
-        content: `<@&${DAILY_ROLE}>`,
-        embeds: [embed]
-      });
-    }
-  }, 60 * 1000);
-
-  // INITIAL BASE ROLE ASSIGN + ANNOUNCE
-  try {
-    const guilds = client.guilds.cache;
-    for (const [, guild] of guilds) {
-      await guild.members.fetch();
-      const channel = guild.channels.cache.get(LEVEL_CHANNEL);
-      if (!channel) continue;
-
-      for (const [, member] of guild.members.cache) {
-        if (member.user.bot) continue;
-        if (!member.roles.cache.has(ROLE_BASE)) {
-          await member.roles.add(ROLE_BASE).catch(() => {});
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setDescription(
-              `-uncontrollably laughs- welcome to chat leveling, bitch!\n` +
-              `<@${member.id}> is now <@&${ROLE_BASE}>`
-            )
-            .setFooter({ text: FOOTER_TEXT });
-          await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
-        }
-      }
-    }
-  } catch (e) {
-    console.error("Initial base role assign error:", e);
-  }
-
-  // BEST USER CHECK EVERY 10 MIN
-  setInterval(async () => {
-    try {
-      let bestId = null;
-      let bestMessages = -1;
-      for (const uid in xpData.users) {
-        const u = xpData.users[uid];
-        if (u.messages > bestMessages) {
-          bestMessages = u.messages;
-          bestId = uid;
-        }
-      }
-      if (!bestId) return;
-
-      if (xpData.bestUserId !== bestId) {
-        const oldBest = xpData.bestUserId;
-        xpData.bestUserId = bestId;
-        xpData.bestSince = Date.now();
-        saveJson("xpData.json", xpData);
-
-        const guilds = client.guilds.cache;
-        for (const [, guild] of guilds) {
-          const channel = guild.channels.cache.get(LEVEL_CHANNEL);
-          if (!channel) continue;
-
-          const oldMember = oldBest ? guild.members.cache.get(oldBest) : null;
-          const newMember = guild.members.cache.get(bestId);
-          if (!newMember) continue;
-
-          if (oldMember && oldMember.roles.cache.has(ROLE_TOP)) {
-            await oldMember.roles.remove(ROLE_TOP).catch(() => {});
-          }
-          if (!newMember.roles.cache.has(ROLE_TOP)) {
-            await newMember.roles.add(ROLE_TOP).catch(() => {});
-          }
-
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setDescription(
-              `-uncontrollably laughs- -points disgustingly- pffth, look at <@${oldBest}> , once the best, now an L!\n` +
-              `<@${newMember.id}> is now <@&${ROLE_TOP}>`
-            )
-            .setFooter({ text: FOOTER_TEXT });
-
-          await channel.send({ content: `<@${newMember.id}>`, embeds: [embed] });
-        }
-      }
-    } catch (e) {
-      console.error("Best user check error:", e);
-    }
-  }, 10 * 60 * 1000);
-
-  // ROAST LOOP – every 2 minutes, harsher, ping target
-  setInterval(async () => {
-    if (!roastEnabled) return;
     try {
       const guilds = client.guilds.cache;
       for (const [, guild] of guilds) {
+        const salaryChannel = guild.channels.cache.get(SALARY_CHANNEL);
+        if (!salaryChannel) continue;
+
         await guild.members.fetch();
-        const members = guild.members.cache.filter(m => !m.user.bot);
-        if (members.size === 0) continue;
-        const arr = [...members.values()];
-        const target = arr[Math.floor(Math.random() * arr.length)];
-        const channel = guild.channels.cache.get(CHAT_XP_CHANNEL);
-        if (!channel) continue;
 
-        const randomRoast = getRandomRoast();
+        for (const userId in jobsData.users) {
+          const jobInfo = jobsData.users[userId];
+          if (jobInfo.job !== "cook") continue;
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setDescription(`<@${target.id}> ${randomRoast}`)
-          .setFooter({ text: FOOTER_TEXT });
+          const eco = getEcoUser(userId);
+          eco.wallet += 2;
+          saveJson("economy.json", economyData);
 
-        await channel.send({ content: `<@${target.id}>`, embeds: [embed] });
+          const member = guild.members.cache.get(userId);
+          if (!member) continue;
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription(
+              `<@&${COOK_ROLE}> hourly salary dropped, bitch.\n` +
+              `<@${userId}> got **2** turds for being a cook.`
+            )
+            .setFooter({ text: FOOTER_TEXT });
+
+          await salaryChannel.send({
+            content: `<@&${COOK_ROLE}>`,
+            embeds: [embed]
+          });
+        }
       }
     } catch (e) {
-      console.error("Roast loop error:", e);
+      console.error("Salary error:", e);
     }
-  }, 2 * 60 * 1000);
+  }, 60 * 60 * 1000); // hourly
 
-  // FAMILY CONFIRMATION TIMEOUT
+  // DAILY INACTIVITY CHECK FOR COOKS
   setInterval(async () => {
-    const now = Date.now();
-    for (const key in pendingFamily) {
-      const pf = pendingFamily[key];
-      if (pf.expiresAt <= now) {
-        try {
-          const guild = client.guilds.cache.get(pf.guildId);
-          if (!guild) {
-            delete pendingFamily[key];
-            continue;
+    try {
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+
+      const guilds = client.guilds.cache;
+      for (const [, guild] of guilds) {
+        const salaryChannel = guild.channels.cache.get(SALARY_CHANNEL);
+        if (!salaryChannel) continue;
+
+        await guild.members.fetch();
+
+        for (const userId in jobsData.users) {
+          const jobInfo = jobsData.users[userId];
+          if (jobInfo.job !== "cook") continue;
+
+          if (!jobInfo.lastActivity || now - jobInfo.lastActivity > oneDay) {
+            jobInfo.job = null;
+            jobInfo.lastActivity = 0;
+            saveJson("jobs.json", jobsData);
+
+            const member = guild.members.cache.get(userId);
+            if (member) {
+              if (member.roles.cache.has(COOK_ROLE)) {
+                await member.roles.remove(COOK_ROLE).catch(() => {});
+              }
+            }
+
+            const embed = new EmbedBuilder()
+              .setColor("#ED0000")
+              .setDescription(
+                `<@${userId}> got fired for being inactive, bitch.\n` +
+                `cook job terminated.`
+              )
+              .setFooter({ text: FOOTER_TEXT });
+
+            await salaryChannel.send({
+              content: `<@${userId}>`,
+              embeds: [embed]
+            });
           }
-          const channel = guild.channels.cache.get(pf.channelId);
-          if (!channel) {
-            delete pendingFamily[key];
-            continue;
-          }
-          const msg = await channel.messages.fetch(pf.msgId).catch(() => null);
-          if (!msg) {
-            delete pendingFamily[key];
-            continue;
-          }
-          const embed = makeEmbed("you ran out of time, bitch.");
-          await msg.reply({ embeds: [embed] });
-        } catch {}
-        delete pendingFamily[key];
+        }
       }
+    } catch (e) {
+      console.error("Inactivity check error:", e);
     }
-  }, 30 * 1000);
+  }, 60 * 60 * 1000); // check hourly
 });
 
 // ===============================
@@ -693,633 +362,9 @@ client.once("ready", async () => {
 // ===============================
 client.on("interactionCreate", async (interaction) => {
   try {
-    if (botLocked && interaction.user.id !== BOT_MASTER) {
-      const embed = makeEmbed("bot is locked, bitch.");
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    function fixRoleMentions(text, guild) {
-      if (!text) return text;
-      return text.replace(/<@&(\d+)>/g, (match, id) => {
-        const role = guild.roles.cache.get(id);
-        return role ? `<@&${id}>` : match;
-      });
-    }
-
-    // EMBED CREATE — MODAL SUBMIT
-    if (interaction.isModalSubmit() && interaction.customId === "embed_modal") {
-      const title = interaction.fields.getTextInputValue("embed_title");
-      const desc = interaction.fields.getTextInputValue("embed_desc");
-      const image = interaction.fields.getTextInputValue("embed_image");
-      const footer = interaction.fields.getTextInputValue("embed_footer");
-
-      const guild = interaction.guild;
-
-      const embed = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription(fixRoleMentions(desc, guild))
-        .setFooter({
-          text: footer
-            ? fixRoleMentions(footer, guild)
-            : FOOTER_TEXT
-        });
-
-      if (title) embed.setTitle(fixRoleMentions(title, guild));
-      if (image) embed.setImage(image);
-
-      await interaction.channel.send({ embeds: [embed] });
-
-      const replyEmbed = makeEmbed("embed sent, bitch.");
-      return interaction.reply({ embeds: [replyEmbed] });
-    }
-
-    // EMBED EDIT — MODAL SUBMIT
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("embed_edit_")) {
-      const msgId = interaction.customId.split("_")[2];
-      const guild = interaction.guild;
-
-      const newTitle = interaction.fields.getTextInputValue("embed_title");
-      const newDesc = interaction.fields.getTextInputValue("embed_desc");
-      const newImage = interaction.fields.getTextInputValue("embed_image");
-      const newFooter = interaction.fields.getTextInputValue("embed_footer");
-
-      const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
-      if (!msg) {
-        const e = makeEmbed("message is dead, bitch.");
-        return interaction.reply({ embeds: [e] });
-      }
-
-      if (!msg.author || msg.author.id !== client.user.id) {
-        const e = makeEmbed("this ain't my embed, bitch.");
-        return interaction.reply({ embeds: [e] });
-      }
-
-      if (!msg.embeds || msg.embeds.length !== 1) {
-        const e = makeEmbed("embed is weird, bitch.");
-        return interaction.reply({ embeds: [e] });
-      }
-
-      const old = msg.embeds[0];
-
-      const embed = new EmbedBuilder()
-        .setColor(old.color || "#ED0000")
-        .setTitle(newTitle ? fixRoleMentions(newTitle, guild) : old.title)
-        .setDescription(newDesc ? fixRoleMentions(newDesc, guild) : old.description)
-        .setFooter({
-          text: newFooter
-            ? fixRoleMentions(newFooter, guild)
-            : (old.footer?.text || FOOTER_TEXT)
-        });
-
-      if (newImage) embed.setImage(newImage);
-      else if (old.image) embed.setImage(old.image.url);
-
-      await msg.edit({ embeds: [embed] });
-
-      const replyEmbed = makeEmbed("embed edited, bitch.");
-      return interaction.reply({ embeds: [replyEmbed] });
-    }
-
-    // BUTTONS
-    if (interaction.isButton()) {
-      const id = interaction.customId;
-
-      if (id.startsWith("warn_hate_")) {
-        const e = makeEmbed("yeah bitch, this was sent with pure hate.");
-        return interaction.reply({ embeds: [e] });
-      }
-
-      // family confirm buttons
-      if (id.startsWith("family_")) {
-        const parts = id.split("_");
-        const type = parts[1];
-        const decision = parts[2];
-        const key = parts.slice(3).join("_");
-
-        const pf = pendingFamily[key];
-        if (!pf) {
-          const e = makeEmbed("this confirmation is dead, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        if (type === "marry" || type === "adopt") {
-          if (interaction.user.id !== pf.b) {
-            const e = makeEmbed("this ain't your confirmation, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-        } else if (type === "divorce" || type === "abandon") {
-          if (interaction.user.id !== pf.a) {
-            const e = makeEmbed("this ain't your confirmation, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-        }
-
-        if (decision === "no") {
-          const embed = makeEmbed("they said no, bitch.");
-          delete pendingFamily[key];
-          return interaction.update({ embeds: [embed], components: [] });
-        }
-
-        if (type === "marry") {
-          familyData.marriages.push({ a: pf.a, b: pf.b });
-        } else if (type === "adopt") {
-          familyData.parents.push({ parent: pf.a, child: pf.b });
-        } else if (type === "divorce") {
-          familyData.marriages = familyData.marriages.filter(
-            m =>
-              !(
-                (m.a === pf.a && m.b === pf.b) ||
-                (m.a === pf.b && m.b === pf.a)
-              )
-          );
-        } else if (type === "abandon") {
-          familyData.parents = familyData.parents.filter(
-            p => !(p.parent === pf.a && p.child === pf.b)
-          );
-        }
-        saveJson("family.json", familyData);
-
-        const embed = makeEmbed("confirmed, bitch.");
-        delete pendingFamily[key];
-        return interaction.update({ embeds: [embed], components: [] });
-      }
-
-      // CASH buttons
-      if (id.startsWith("cash_withdraw_")) {
-        const targetId = id.split("_")[2];
-        if (targetId !== interaction.user.id) {
-          const e = makeEmbed("this ain't your cash, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const modal = new ModalBuilder()
-          .setCustomId("cash_withdraw_modal")
-          .setTitle("Withdraw turds");
-
-        const input = new TextInputBuilder()
-          .setCustomId("amount")
-          .setLabel("Amount to withdraw")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        const row = new ActionRowBuilder().addComponents(input);
-        modal.addComponents(row);
-
-        return interaction.showModal(modal);
-      }
-
-      if (id.startsWith("cash_deposit_")) {
-        const targetId = id.split("_")[2];
-        if (targetId !== interaction.user.id) {
-          const e = makeEmbed("this ain't your cash, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const modal = new ModalBuilder()
-          .setCustomId("cash_deposit_modal")
-          .setTitle("Deposit turds");
-
-        const input = new TextInputBuilder()
-          .setCustomId("amount")
-          .setLabel("Amount to deposit")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        const row = new ActionRowBuilder().addComponents(input);
-        modal.addComponents(row);
-
-        return interaction.showModal(modal);
-      }
-
-      // BLACKJACK buttons
-      if (id.startsWith("bj_")) {
-        const parts = id.split("_");
-        const action = parts[1];
-        const uid = parts[2];
-
-        if (uid !== interaction.user.id) {
-          const e = makeEmbed("this ain't your game, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const game = blackjackGames[uid];
-        if (!game || game.finished) {
-          const e = makeEmbed("game is over, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        game.moves = (game.moves || 0) + 1;
-        if (game.moves > 10) {
-          game.finished = true;
-        }
-
-        const eco = getEcoUser(uid);
-
-        if (action === "hit" && !game.finished) {
-          game.playerHand.push(bjDrawCard());
-          const playerVal = bjHandValue(game.playerHand);
-          const dealerVal = bjHandValue(game.dealerHand);
-
-          let desc = `**Bet:** ${game.bet} turds\n\n` +
-                     `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
-                     `**Dealer hand:** ${game.dealerHand.join(", ")} (value: ${dealerVal})\n\n`;
-
-          if (playerVal > 21) {
-            game.finished = true;
-            eco.wallet -= game.bet;
-            saveJson("economy.json", economyData);
-            desc += `you busted, bitch. -${game.bet} turds.`;
-          } else {
-            desc += "hit again or stand, bitch.";
-          }
-
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setTitle("Blackjack")
-            .setDescription(desc)
-            .setFooter({ text: FOOTER_TEXT });
-
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`bj_hit_${uid}`)
-              .setLabel("Hit")
-              .setStyle(ButtonStyle.Primary)
-              .setDisabled(game.finished),
-            new ButtonBuilder()
-              .setCustomId(`bj_stand_${uid}`)
-              .setLabel("Stand")
-              .setStyle(ButtonStyle.Secondary)
-              .setDisabled(game.finished)
-          );
-
-          return interaction.update({ embeds: [embed], components: game.finished ? [] : [row] });
-        }
-
-        if (action === "stand" || game.finished) {
-          game.finished = true;
-
-          let playerVal = bjHandValue(game.playerHand);
-          let dealerVal = bjHandValue(game.dealerHand);
-
-          while (dealerVal < 17) {
-            game.dealerHand.push(bjDrawCard());
-            dealerVal = bjHandValue(game.dealerHand);
-          }
-
-          let result;
-          let delta = 0;
-
-          if (playerVal > 21) {
-            result = "you busted, bitch.";
-            delta = -game.bet;
-          } else if (dealerVal > 21 || playerVal > dealerVal) {
-            result = "you actually won, bitch.";
-            delta = game.bet;
-          } else if (playerVal < dealerVal) {
-            result = "dealer clapped you, bitch.";
-            delta = -game.bet;
-          } else {
-            result = "it's a tie, boring bitch.";
-            delta = 0;
-          }
-
-          eco.wallet += delta;
-          saveJson("economy.json", economyData);
-
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setTitle("Blackjack – Final")
-            .setDescription(
-              `**Bet:** ${game.bet} turds\n\n` +
-              `**Your hand:** ${game.playerHand.join(", ")} (value: ${playerVal})\n` +
-              `**Dealer hand:** ${game.dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
-              `${result}\n` +
-              `Balance change: **${delta}** turds\n` +
-              `New wallet: **${eco.wallet}**`
-            )
-            .setFooter({ text: FOOTER_TEXT });
-
-          delete blackjackGames[uid];
-
-          return interaction.update({ embeds: [embed], components: [] });
-        }
-      }
-
-      return;
-    }
-
-    // OTHER MODALS
-    if (interaction.isModalSubmit()) {
-      const id = interaction.customId;
-
-      if (id === "announcement_modal") {
-        const title = interaction.fields.getTextInputValue("title");
-        const body = interaction.fields.getTextInputValue("body");
-        const type = interaction.fields.getTextInputValue("type");
-
-        let channelId = null;
-        if (type.toLowerCase() === "events") channelId = EVENTS_TEXT_CHANNEL;
-        else if (type.toLowerCase() === "announcements") channelId = ANNOUNCEMENTS_TEXT_CHANNEL;
-
-        if (!channelId) {
-          const e = makeEmbed("learn how to type, bitch. use 'events' or 'announcements'.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const channel = await client.channels.fetch(channelId).catch(() => null);
-        if (!channel) {
-          const e = makeEmbed("channel is dead, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle(title)
-          .setDescription(body)
-          .setFooter({ text: FOOTER_TEXT });
-
-        await channel.send({ embeds: [embed] });
-        const replyEmbed = makeEmbed("announcement sent, bitch.");
-        return interaction.reply({ embeds: [replyEmbed] });
-      }
-
-      if (id === "cash_withdraw_modal") {
-        const amount = parseInt(interaction.fields.getTextInputValue("amount"));
-        const eco = getEcoUser(interaction.user.id);
-
-        if (isNaN(amount) || amount <= 0) {
-          const e = makeEmbed("invalid amount, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        if (eco.bank < amount) {
-          const e = makeEmbed("you broke, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        eco.bank -= amount;
-        eco.wallet += amount;
-        saveJson("economy.json", economyData);
-
-        const e = makeEmbed(`withdrew ${amount} turds, bitch.`);
-        return interaction.reply({ embeds: [e] });
-      }
-
-      if (id === "cash_deposit_modal") {
-        const amount = parseInt(interaction.fields.getTextInputValue("amount"));
-        const eco = getEcoUser(interaction.user.id);
-
-        if (isNaN(amount) || amount <= 0) {
-          const e = makeEmbed("invalid amount, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        if (eco.wallet < amount) {
-          const e = makeEmbed("you broke, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        eco.wallet -= amount;
-        eco.bank += amount;
-        saveJson("economy.json", economyData);
-
-        const e = makeEmbed(`deposited ${amount} turds, bitch.`);
-        return interaction.reply({ embeds: [e] });
-      }
-    }
-
-    // SLASH COMMANDS
+    // All replies visible, all embeds
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
-
-      // EMBED
-      if (commandName === "embed") {
-        const sub = interaction.options.getSubcommand();
-
-        if (sub === "create") {
-          const modal = new ModalBuilder()
-            .setCustomId("embed_modal")
-            .setTitle("Custom Embed Creator");
-
-          const titleInput = new TextInputBuilder()
-            .setCustomId("embed_title")
-            .setLabel("Title (optional)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false);
-
-          const descInput = new TextInputBuilder()
-            .setCustomId("embed_desc")
-            .setLabel("Description")
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(true);
-
-          const imageInput = new TextInputBuilder()
-            .setCustomId("embed_image")
-            .setLabel("Image URL (optional)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false);
-
-          const footerInput = new TextInputBuilder()
-            .setCustomId("embed_footer")
-            .setLabel("Footer (optional)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false);
-
-          modal.addComponents(
-            new ActionRowBuilder().addComponents(titleInput),
-            new ActionRowBuilder().addComponents(descInput),
-            new ActionRowBuilder().addComponents(imageInput),
-            new ActionRowBuilder().addComponents(footerInput)
-          );
-
-          return interaction.showModal(modal);
-        }
-
-        if (sub === "edit") {
-          const msgId = interaction.options.getString("msgid");
-
-          const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
-          if (!msg) {
-            const e = makeEmbed("message is dead, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          if (!msg.author || msg.author.id !== client.user.id) {
-            const e = makeEmbed("this ain't my embed, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          if (!msg.embeds || msg.embeds.length !== 1) {
-            const e = makeEmbed("embed is weird, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          const modal = new ModalBuilder()
-            .setCustomId(`embed_edit_${msgId}`)
-            .setTitle("Edit Embed");
-
-          const titleInput = new TextInputBuilder()
-            .setCustomId("embed_title")
-            .setLabel("New Title (optional)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false);
-
-          const descInput = new TextInputBuilder()
-            .setCustomId("embed_desc")
-            .setLabel("New Description (optional)")
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(false);
-
-          const imageInput = new TextInputBuilder()
-            .setCustomId("embed_image")
-            .setLabel("New Image URL (optional)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false);
-
-          const footerInput = new TextInputBuilder()
-            .setCustomId("embed_footer")
-            .setLabel("New Footer (optional)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false);
-
-          modal.addComponents(
-            new ActionRowBuilder().addComponents(titleInput),
-            new ActionRowBuilder().addComponents(descInput),
-            new ActionRowBuilder().addComponents(imageInput),
-            new ActionRowBuilder().addComponents(footerInput)
-          );
-
-          return interaction.showModal(modal);
-        }
-      }
-
-      // ANNOUNCEMENT
-      if (commandName === "announcement") {
-        const modal = new ModalBuilder()
-          .setCustomId("announcement_modal")
-          .setTitle("Announcement, bitch.");
-
-        const titleInput = new TextInputBuilder()
-          .setCustomId("title")
-          .setLabel("Title")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        const bodyInput = new TextInputBuilder()
-          .setCustomId("body")
-          .setLabel("Body")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true);
-
-        const typeInput = new TextInputBuilder()
-          .setCustomId("type")
-          .setLabel("Type (events/announcements)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(titleInput),
-          new ActionRowBuilder().addComponents(bodyInput),
-          new ActionRowBuilder().addComponents(typeInput)
-        );
-
-        return interaction.showModal(modal);
-      }
-
-      // DEADCHAT
-      if (commandName === "deadchat") {
-        const mode = interaction.options.getString("mode");
-        deadchatEnabled = mode === "on";
-        const e = makeEmbed(`deadchat is now ${deadchatEnabled ? "on" : "off"}, bitch.`);
-        return interaction.reply({ embeds: [e] });
-      }
-
-      // CMD LIST
-      if (commandName === "cmd") {
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Commands, bitch.")
-          .setDescription(
-            "you got slash commands like:\n" +
-            "/announcement, /deadchat, /deratization, /pic, /statuschannel, /shutdown, /bot, /embed, /rolescreate,\n" +
-            "/kick, /ban, /warn, /warnlogs, /ground, /unground, /roast,\n" +
-            "/marry, /divorce, /adopt, /abandon, /familytree,\n" +
-            "/leaderboard, /stats, /xp delete,\n" +
-            "/work, /crime, /slut, /blackjack, /rob, /cash, /roll, /purge, /annoy.\n\n" +
-            "figure it out, bitch."
-          )
-          .setFooter({ text: FOOTER_TEXT });
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      // DERATIZATION
-      if (commandName === "deratization") {
-        const sub = interaction.options.getSubcommand();
-        const channel = interaction.channel;
-
-        if (!channel) {
-          const e = makeEmbed("channel is dead, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        if (sub === "start") {
-          await channel.permissionOverwrites.edit(channel.guild.roles.everyone, {
-            SendMessages: false
-          }).catch(() => {});
-          const e = makeEmbed("channel locked, bitch.");
-          return interaction.reply({ embeds: [e] });
-        } else {
-          await channel.permissionOverwrites.edit(channel.guild.roles.everyone, {
-            SendMessages: null
-          }).catch(() => {});
-          const e = makeEmbed("channel unlocked, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-      }
-
-      // PIC SUBMIT – DM FLOW
-      if (commandName === "pic") {
-        const sub = interaction.options.getSubcommand();
-        if (sub === "submit") {
-          try {
-            const dmEmbed = new EmbedBuilder()
-              .setColor("#ED0000")
-              .setTitle("Pic submission, bitch.")
-              .setDescription("send the pic, bitch.")
-              .setFooter({ text: FOOTER_TEXT });
-
-            await interaction.user.send({ embeds: [dmEmbed] });
-
-            picSubmitUsers.add(interaction.user.id);
-
-            const confirmEmbed = new EmbedBuilder()
-              .setColor("#ED0000")
-              .setDescription("check your DMs, bitch.")
-              .setFooter({ text: FOOTER_TEXT });
-
-            return interaction.reply({ embeds: [confirmEmbed] });
-          } catch (err) {
-            const failEmbed = new EmbedBuilder()
-              .setColor("#ED0000")
-              .setDescription("your DMs are closed, bitch.")
-              .setFooter({ text: FOOTER_TEXT });
-
-            return interaction.reply({ embeds: [failEmbed] });
-          }
-        }
-      }
-
-      // STATUSCHANNEL
-      if (commandName === "statuschannel") {
-        const sub = interaction.options.getSubcommand();
-        if (sub === "set") {
-          const attachment = interaction.options.getAttachment("image");
-          statusConfig.channelId = interaction.channel.id;
-          statusConfig.image = attachment ? attachment.url : null;
-          const e = makeEmbed("status channel set, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-      }
 
       // SHUTDOWN
       if (commandName === "shutdown") {
@@ -1329,391 +374,26 @@ client.on("interactionCreate", async (interaction) => {
         }
         const e = makeEmbed("shutting down, bitch.");
         await interaction.reply({ embeds: [e] });
-        console.log("Shutdown requested by master.");
         process.exit(0);
       }
 
-      // BOT LOCK/UNLOCK
-      if (commandName === "bot") {
-        const sub = interaction.options.getSubcommand();
-        if (interaction.user.id !== BOT_MASTER) {
-          const e = makeEmbed("you ain't my master, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-        if (sub === "lock") {
-          botLocked = true;
-          const e = makeEmbed("bot locked, bitch.");
-          return interaction.reply({ embeds: [e] });
-        } else {
-          botLocked = false;
-          const e = makeEmbed("bot unlocked, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-      }
-
-      // ROLESCREATE
-      if (commandName === "rolescreate") {
-        const msgId = interaction.options.getString("msgid");
-        const emojisStr = interaction.options.getString("emojis");
-        const role1 = interaction.options.getRole("role1");
-        const role2 = interaction.options.getRole("role2");
-        const role3 = interaction.options.getRole("role3");
-
-        const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
-        if (!msg) {
-          const e = makeEmbed("message is dead, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const emojis = emojisStr.split(",").map(e => e.trim()).filter(e => e.length > 0);
-
-        for (const emoji of emojis) {
-          await msg.react(emoji).catch(() => {});
-        }
-
-        const e = makeEmbed("reaction roles created (you still gotta handle them in code, bitch).");
-        return interaction.reply({ embeds: [e] });
-      }
-
-      // KICK
-      if (commandName === "kick") {
-        const target = interaction.options.getUser("user");
-        const reason = interaction.options.getString("reason") || "no reason, bitch.";
-
-        const member = await interaction.guild.members.fetch(target.id).catch(() => null);
-        if (!member) {
-          const e = makeEmbed("they already gone, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        await member.kick(reason).catch(() => {});
-        const e = makeEmbed(`kicked <@${target.id}> for: ${reason}`);
-        return interaction.reply({ embeds: [e] });
-      }
-
-      // BAN
-      if (commandName === "ban") {
-        const target = interaction.options.getUser("user");
-        const reason = interaction.options.getString("reason") || "no reason, bitch.";
-
-        const member = await interaction.guild.members.fetch(target.id).catch(() => null);
-        if (!member) {
-          const e = makeEmbed("they already gone, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        await member.ban({ reason }).catch(() => {});
-        const e = makeEmbed(`banned <@${target.id}> for: ${reason}`);
-        return interaction.reply({ embeds: [e] });
-      }
-
-      // WARN
-      if (commandName === "warn") {
-        const target = interaction.options.getUser("user");
-        const reason = interaction.options.getString("reason");
-
-        if (!warnsData.users[target.id]) warnsData.users[target.id] = [];
-        warnsData.users[target.id].push({
-          moderatorId: interaction.user.id,
-          reason,
-          timestamp: Date.now()
-        });
-        saveJson("warns.json", warnsData);
+      // CASH
+      if (commandName === "cash") {
+        const eco = getEcoUser(interaction.user.id);
 
         const embed = new EmbedBuilder()
           .setColor("#ED0000")
+          .setTitle("Your filthy money, bitch.")
           .setDescription(
-            `<@${target.id}> got warned, bitch.\n` +
-            `Reason: ${reason}\n` +
-            `Moderator: <@${interaction.user.id}>`
+            `Wallet: **${eco.wallet}** turds\n` +
+            `Bank: **${eco.bank}** turds`
           )
           .setFooter({ text: FOOTER_TEXT });
 
-        await interaction.reply({ embeds: [embed] });
-      }
-
-      // WARNLOGS
-      if (commandName === "warnlogs") {
-        const target = interaction.options.getUser("user");
-        const logs = warnsData.users[target.id] || [];
-
-        if (logs.length === 0) {
-          const e = makeEmbed("no warns, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const desc = logs
-          .map(
-            (w, i) =>
-              `#${i + 1} – by <@${w.moderatorId}> – ${new Date(w.timestamp).toLocaleString()} – ${w.reason}`
-          )
-          .join("\n");
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle(`Warn logs for ${target.tag}`)
-          .setDescription(desc)
-          .setFooter({ text: FOOTER_TEXT });
-
         return interaction.reply({ embeds: [embed] });
       }
 
-      // GROUND
-      if (commandName === "ground") {
-        const target = interaction.options.getUser("user");
-        const duration = interaction.options.getInteger("duration");
-        const reason = interaction.options.getString("reason");
-
-        const until = Date.now() + duration * 60 * 1000;
-        groundData.users[target.id] = { until, reason };
-        saveJson("ground.json", groundData);
-
-        const embed = makeEmbed(
-          `<@${target.id}> got grounded for ${duration} minutes, bitch.\nReason: ${reason}`
-        );
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      // UNGROUND
-      if (commandName === "unground") {
-        const target = interaction.options.getUser("user");
-        delete groundData.users[target.id];
-        saveJson("ground.json", groundData);
-
-        const embed = makeEmbed(`<@${target.id}> is ungrounded, bitch.`);
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      // ROAST TOGGLE
-      if (commandName === "roast") {
-        const mode = interaction.options.getString("mode");
-        roastEnabled = mode === "on";
-        const e = makeEmbed(`roast mode is now ${roastEnabled ? "on" : "off"}, bitch.`);
-        return interaction.reply({ embeds: [e] });
-      }
-
-      // FAMILY
-      if (commandName === "marry") {
-        const partner = interaction.options.getUser("user");
-        const key = `marry_${interaction.user.id}_${partner.id}_${Date.now()}`;
-
-        const embed = makeEmbed(
-          `<@${interaction.user.id}> wants to marry <@${partner.id}>, bitch.`
-        );
-        embed.setTitle("Marriage, bitch.");
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`family_marry_yes_${key}`)
-            .setLabel("Yes")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`family_marry_no_${key}`)
-            .setLabel("No")
-            .setStyle(ButtonStyle.Danger)
-        );
-
-        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-
-        pendingFamily[key] = {
-          a: interaction.user.id,
-          b: partner.id,
-          guildId: interaction.guild.id,
-          channelId: interaction.channel.id,
-          msgId: msg.id,
-          expiresAt: Date.now() + 60 * 1000
-        };
-      }
-
-      if (commandName === "divorce") {
-        const partner = interaction.options.getUser("user");
-        const key = `divorce_${interaction.user.id}_${partner.id}_${Date.now()}`;
-
-        const embed = makeEmbed(
-          `<@${interaction.user.id}> wants to divorce <@${partner.id}>, bitch.`
-        );
-        embed.setTitle("Divorce, bitch.");
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`family_divorce_yes_${key}`)
-            .setLabel("Yes")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`family_divorce_no_${key}`)
-            .setLabel("No")
-            .setStyle(ButtonStyle.Danger)
-        );
-
-        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-
-        pendingFamily[key] = {
-          a: interaction.user.id,
-          b: partner.id,
-          guildId: interaction.guild.id,
-          channelId: interaction.channel.id,
-          msgId: msg.id,
-          expiresAt: Date.now() + 60 * 1000
-        };
-      }
-
-      if (commandName === "adopt") {
-        const child = interaction.options.getUser("user");
-        const key = `adopt_${interaction.user.id}_${child.id}_${Date.now()}`;
-
-        const embed = makeEmbed(
-          `<@${interaction.user.id}> wants to adopt <@${child.id}>, bitch.`
-        );
-        embed.setTitle("Adoption, bitch.");
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`family_adopt_yes_${key}`)
-            .setLabel("Yes")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`family_adopt_no_${key}`)
-            .setLabel("No")
-            .setStyle(ButtonStyle.Danger)
-        );
-
-        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-
-        pendingFamily[key] = {
-          a: interaction.user.id,
-          b: child.id,
-          guildId: interaction.guild.id,
-          channelId: interaction.channel.id,
-          msgId: msg.id,
-          expiresAt: Date.now() + 60 * 1000
-        };
-      }
-
-      if (commandName === "abandon") {
-        const child = interaction.options.getUser("user");
-        const key = `abandon_${interaction.user.id}_${child.id}_${Date.now()}`;
-
-        const embed = makeEmbed(
-          `<@${interaction.user.id}> wants to abandon <@${child.id}>, bitch.`
-        );
-        embed.setTitle("Abandon, bitch.");
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`family_abandon_yes_${key}`)
-            .setLabel("Yes")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`family_abandon_no_${key}`)
-            .setLabel("No")
-            .setStyle(ButtonStyle.Danger)
-        );
-
-        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-
-        pendingFamily[key] = {
-          a: interaction.user.id,
-          b: child.id,
-          guildId: interaction.guild.id,
-          channelId: interaction.channel.id,
-          msgId: msg.id,
-          expiresAt: Date.now() + 60 * 1000
-        };
-      }
-
-      if (commandName === "familytree") {
-        const userId = interaction.user.id;
-
-        const spouses = familyData.marriages
-          .filter(m => m.a === userId || m.b === userId)
-          .map(m => (m.a === userId ? m.b : m.a));
-
-        const children = familyData.parents
-          .filter(p => p.parent === userId)
-          .map(p => p.child);
-
-        const parents = familyData.parents
-          .filter(p => p.child === userId)
-          .map(p => p.parent);
-
-        let desc = "";
-
-        if (spouses.length) {
-          desc += `Spouses: ${spouses.map(id => `<@${id}>`).join(", ")}\n`;
-        }
-        if (children.length) {
-          desc += `Children: ${children.map(id => `<@${id}>`).join(", ")}\n`;
-        }
-        if (parents.length) {
-          desc += `Parents: ${parents.map(id => `<@${id}>`).join(", ")}\n`;
-        }
-
-        if (!desc) desc = "you got no family, bitch.";
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle(`Family tree for <@${userId}>`)
-          .setDescription(desc)
-          .setFooter({ text: FOOTER_TEXT });
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      // LEADERBOARD
-      if (commandName === "leaderboard") {
-        const type = interaction.options.getString("type");
-
-        if (type === "messages") {
-          const entries = Object.entries(xpData.users)
-            .sort((a, b) => b[1].messages - a[1].messages)
-            .slice(0, 10);
-
-          if (entries.length === 0) {
-            const e = makeEmbed("no data, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          const desc = entries
-            .map(([id, data], i) => `#${i + 1} <@${id}> – ${data.messages} messages`)
-            .join("\n");
-
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setTitle("Messages leaderboard, bitch.")
-            .setDescription(desc)
-            .setFooter({ text: FOOTER_TEXT });
-
-          return interaction.reply({ embeds: [embed] });
-        } else {
-          const entries = Object.entries(economyData.users)
-            .sort((a, b) => (b[1].wallet + b[1].bank) - (a[1].wallet + a[1].bank))
-            .slice(0, 10);
-
-          if (entries.length === 0) {
-            const e = makeEmbed("no turds, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          const desc = entries
-            .map(
-              ([id, data], i) =>
-                `#${i + 1} <@${id}> – wallet: ${data.wallet}, bank: ${data.bank}, total: ${
-                  data.wallet + data.bank
-                }`
-            )
-            .join("\n");
-
-          const embed = new EmbedBuilder()
-            .setColor("#ED0000")
-            .setTitle("Economy leaderboard, bitch.")
-            .setDescription(desc)
-            .setFooter({ text: FOOTER_TEXT });
-
-          return interaction.reply({ embeds: [embed] });
-        }
-      }
-
-      // STATS – XP ONLY
+      // STATS (XP)
       if (commandName === "stats") {
         const userId = interaction.user.id;
         const xpUser = getXpUser(userId);
@@ -1740,7 +420,6 @@ client.on("interactionCreate", async (interaction) => {
           .setTitle(`XP stats for <@${userId}>, bitch.`)
           .setThumbnail(avatarUrl)
           .setDescription(
-            `Current rank: <@&${currentThreshold.role}>\n\n` +
             `XP: **${currentXp}**\n` +
             (nextXpTarget
               ? `Next rank at: **${nextXpTarget}** XP\n` +
@@ -1753,390 +432,748 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ embeds: [embed] });
       }
 
-      // XP DELETE
-      if (commandName === "xp") {
+      // LEADERBOARD
+      if (commandName === "leaderboard") {
         const sub = interaction.options.getSubcommand();
-        if (sub === "delete") {
-          const target = interaction.options.getUser("user");
-          delete xpData.users[target.id];
-          saveJson("xpData.json", xpData);
 
-          const e = makeEmbed(`deleted xp for <@${target.id}>, bitch.`);
-          return interaction.reply({ embeds: [e] });
+        if (sub === "economy") {
+          const entries = Object.entries(economyData.users)
+            .sort((a, b) => (b[1].wallet + b[1].bank) - (a[1].wallet + a[1].bank));
+
+          if (entries.length === 0) {
+            const e = makeEmbed("no turds yet, bitch.");
+            return interaction.reply({ embeds: [e] });
+          }
+
+          const pageSize = 10;
+          const page = 0;
+
+          const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+
+          const desc = pageEntries
+            .map(
+              ([id, data], i) =>
+                `#${page * pageSize + i + 1} <@${id}> – wallet: ${data.wallet}, bank: ${data.bank}, total: ${
+                  data.wallet + data.bank
+                }`
+            )
+            .join("\n");
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Economy leaderboard, bitch.")
+            .setDescription(desc)
+            .setFooter({ text: FOOTER_TEXT });
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`lb_economy_prev_${interaction.user.id}_0`)
+              .setLabel("Prev")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true),
+            new ButtonBuilder()
+              .setCustomId(`lb_economy_next_${interaction.user.id}_0`)
+              .setLabel("Next")
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(entries.length <= pageSize)
+          );
+
+          return interaction.reply({ embeds: [embed], components: [row] });
+        }
+
+        if (sub === "chat") {
+          const entries = Object.entries(xpData.users)
+            .sort((a, b) => b[1].xp - a[1].xp);
+
+          if (entries.length === 0) {
+            const e = makeEmbed("no chat data yet, bitch.");
+            return interaction.reply({ embeds: [e] });
+          }
+
+          const pageSize = 10;
+          const page = 0;
+
+          const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+
+          const desc = pageEntries
+            .map(
+              ([id, data], i) =>
+                `#${page * pageSize + i + 1} <@${id}> – messages: ${data.messages}, XP: ${data.xp}`
+            )
+            .join("\n");
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Chat leaderboard, bitch.")
+            .setDescription(desc)
+            .setFooter({ text: FOOTER_TEXT });
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`lb_chat_prev_${interaction.user.id}_0`)
+              .setLabel("Prev")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true),
+            new ButtonBuilder()
+              .setCustomId(`lb_chat_next_${interaction.user.id}_0`)
+              .setLabel("Next")
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(entries.length <= pageSize)
+          );
+
+          return interaction.reply({ embeds: [embed], components: [row] });
         }
       }
 
-      // ECONOMY: WORK / CRIME / SLUT / ROB / CASH / ROLL / BLACKJACK
-      if (commandName === "work") {
-        if (!canUse(interaction.user.id, "work", 60 * 1000)) {
-          const e = makeEmbed("slow down, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-        const eco = getEcoUser(interaction.user.id);
-        const amount = Math.floor(Math.random() * 150) + 50;
-        eco.wallet += amount;
-        saveJson("economy.json", economyData);
-
-        const phrases = [
-          `you clocked in like a corporate slave and earned **${amount}** turds, bitch.`,
-          `you did the bare minimum at work and still got **${amount}** turds, bitch.`,
-          `you pretended to be productive and somehow got **${amount}** turds, bitch.`,
-          `you answered one email and HR gave you **${amount}** turds, bitch.`,
-          `you survived another shift and walked away with **${amount}** turds, bitch.`
-        ];
-        const text = phrases[Math.floor(Math.random() * phrases.length)];
+      // JOBLIST
+      if (commandName === "joblist") {
+        const userId = interaction.user.id;
+        const jobInfo = getJobUser(userId);
 
         const embed = new EmbedBuilder()
           .setColor("#ED0000")
-          .setTitle("Work, bitch.")
-          .setDescription(text)
-          .setFooter({ text: FOOTER_TEXT });
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      if (commandName === "crime") {
-        if (!canUse(interaction.user.id, "crime", 90 * 1000)) {
-          const e = makeEmbed("chill, criminal, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-        const eco = getEcoUser(interaction.user.id);
-        const success = Math.random() < 0.5;
-        const amount = Math.floor(Math.random() * 200) + 50;
-
-        let text;
-        if (success) {
-          eco.wallet += amount;
-          saveJson("economy.json", economyData);
-          const phrases = [
-            `you robbed a candy store and got **${amount}** turds, bitch.`,
-            `you did a sloppy heist but still walked away with **${amount}** turds, bitch.`,
-            `you pickpocketed some NPC and stole **${amount}** turds, bitch.`,
-            `you scammed someone in DMs and earned **${amount}** turds, bitch.`,
-            `you committed tax fraud and pocketed **${amount}** turds, bitch.`
-          ];
-          text = phrases[Math.floor(Math.random() * phrases.length)];
-        } else {
-          eco.wallet = Math.max(0, eco.wallet - amount);
-          saveJson("economy.json", economyData);
-          const phrases = [
-            `you got caught and lost **${amount}** turds, bitch.`,
-            `police clapped you and took **${amount}** turds, bitch.`,
-            `your crime flopped and you dropped **${amount}** turds, bitch.`,
-            `you slipped on the getaway and lost **${amount}** turds, bitch.`,
-            `you snitched on yourself and lost **${amount}** turds, bitch.`
-          ];
-          text = phrases[Math.floor(Math.random() * phrases.length)];
-        }
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Crime, bitch.")
-          .setDescription(text)
-          .setFooter({ text: FOOTER_TEXT });
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      if (commandName === "slut") {
-        if (!canUse(interaction.user.id, "slut", 90 * 1000)) {
-          const e = makeEmbed("you already sold yourself, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-        const eco = getEcoUser(interaction.user.id);
-        const amount = Math.floor(Math.random() * 250) + 50;
-        eco.wallet += amount;
-        saveJson("economy.json", economyData);
-
-        const phrases = [
-          `you did questionable things for **${amount}** turds, bitch.`,
-          `you flirted your way into **${amount}** turds, bitch.`,
-          `you sold your dignity for **${amount}** turds, bitch.`,
-          `you posted thirst and got **${amount}** turds, bitch.`,
-          `you became premium cringe and earned **${amount}** turds, bitch.`
-        ];
-        const text = phrases[Math.floor(Math.random() * phrases.length)];
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Slut, bitch.")
-          .setDescription(text)
-          .setFooter({ text: FOOTER_TEXT });
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      if (commandName === "rob") {
-        const target = interaction.options.getUser("user");
-        if (target.id === interaction.user.id) {
-          const e = makeEmbed("you can't rob yourself, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        if (!canUse(interaction.user.id, "rob", 120 * 1000)) {
-          const e = makeEmbed("rob cooldown, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const eco = getEcoUser(interaction.user.id);
-        const victimEco = getEcoUser(target.id);
-
-        if (victimEco.wallet <= 0) {
-          const e = makeEmbed("they broke, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const success = Math.random() < 0.5;
-        const amount = Math.floor(Math.random() * Math.max(1, victimEco.wallet)) + 1;
-
-        let text;
-        if (success) {
-          victimEco.wallet -= amount;
-          eco.wallet += amount;
-          saveJson("economy.json", economyData);
-
-          const phrases = [
-            `you robbed <@${target.id}> for **${amount}** turds, bitch.`,
-            `you snatched **${amount}** turds from <@${target.id}>, bitch.`,
-            `you pickpocketed <@${target.id}> and stole **${amount}** turds, bitch.`,
-            `you mugged <@${target.id}> and took **${amount}** turds, bitch.`,
-            `you slid their wallet and grabbed **${amount}** turds, bitch.`
-          ];
-          text = phrases[Math.floor(Math.random() * phrases.length)];
-        } else {
-          const fine = Math.floor(amount / 2);
-          eco.wallet = Math.max(0, eco.wallet - fine);
-          saveJson("economy.json", economyData);
-
-          const phrases = [
-            `you failed to rob <@${target.id}> and lost **${fine}** turds, bitch.`,
-            `security clapped you and you dropped **${fine}** turds, bitch.`,
-            `you got caught mid-rob and lost **${fine}** turds, bitch.`,
-            `you tripped while robbing and spilled **${fine}** turds, bitch.`,
-            `you fumbled the robbery and lost **${fine}** turds, bitch.`
-          ];
-          text = phrases[Math.floor(Math.random() * phrases.length)];
-        }
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Rob, bitch.")
-          .setDescription(text)
-          .setFooter({ text: FOOTER_TEXT });
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      if (commandName === "cash") {
-        const eco = getEcoUser(interaction.user.id);
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Your filthy money, bitch.")
+          .setTitle("Job list, bitch.")
           .setDescription(
-            `Wallet: **${eco.wallet}** turds\n` +
-            `Bank: **${eco.bank}** turds`
+            `Current job: **${jobInfo.job ? jobInfo.job : "none"}**\n\n` +
+            `Pick a job, bitch.`
           )
           .setFooter({ text: FOOTER_TEXT });
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`cash_withdraw_${interaction.user.id}`)
-            .setLabel("Withdraw")
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId(`cash_deposit_${interaction.user.id}`)
-            .setLabel("Deposit")
-            .setStyle(ButtonStyle.Secondary)
-        );
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`joblist_select_${userId}`)
+          .setPlaceholder("Choose job, bitch.")
+          .addOptions([
+            {
+              label: "Cook",
+              value: "cook",
+              description: "cook food, bitch."
+            }
+          ]);
+
+        const row = new ActionRowBuilder().addComponents(select);
 
         return interaction.reply({ embeds: [embed], components: [row] });
       }
 
-      if (commandName === "roll") {
-        const amount = interaction.options.getInteger("amount");
-        const eco = getEcoUser(interaction.user.id);
+      // JOBPANEL
+      if (commandName === "jobpanel") {
+        const userId = interaction.user.id;
+        const jobInfo = getJobUser(userId);
 
-        if (amount <= 0) {
-          const e = makeEmbed("roll something real, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-        if (eco.wallet < amount) {
-          const e = makeEmbed("you broke, bitch.");
+        if (!jobInfo.job) {
+          const e = makeEmbed("you got no job, bitch.");
           return interaction.reply({ embeds: [e] });
         }
 
-        const win = Math.random() < 0.5;
-        let text;
-        if (win) {
-          eco.wallet += amount;
-          saveJson("economy.json", economyData);
-          const phrases = [
-            `you rolled and doubled to **${amount}** extra turds, bitch.`,
-            `luck kissed you and you gained **${amount}** turds, bitch.`,
-            `you hit the roll and got **${amount}** turds, bitch.`,
-            `you spun the wheel and won **${amount}** turds, bitch.`,
-            `you risked it and got **${amount}** turds, bitch.`
-          ];
-          text = phrases[Math.floor(Math.random() * phrases.length)];
-        } else {
-          eco.wallet -= amount;
-          saveJson("economy.json", economyData);
-          const phrases = [
-            `you rolled and lost **${amount}** turds, bitch.`,
-            `luck left the chat, you dropped **${amount}** turds, bitch.`,
-            `you flopped the roll and lost **${amount}** turds, bitch.`,
-            `you gambled and the house took **${amount}** turds, bitch.`,
-            `you risked it and lost **${amount}** turds, bitch.`
-          ];
-          text = phrases[Math.floor(Math.random() * phrases.length)];
+        if (jobInfo.job === "cook") {
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Cook job panel, bitch.")
+            .setDescription(
+              "Use the panel, bitch.\n\n" +
+              "Options:\n" +
+              "- Orders\n" +
+              "- Orders Log"
+            )
+            .setFooter({ text: FOOTER_TEXT });
+
+          const select = new StringSelectMenuBuilder()
+            .setCustomId(`jobpanel_cook_${userId}`)
+            .setPlaceholder("Choose panel option, bitch.")
+            .addOptions([
+              {
+                label: "Orders",
+                value: "orders",
+                description: "see current orders, bitch."
+              },
+              {
+                label: "Orders Log",
+                value: "orders_log",
+                description: "see completed orders, bitch."
+              }
+            ]);
+
+          const row = new ActionRowBuilder().addComponents(select);
+
+          return interaction.reply({ embeds: [embed], components: [row] });
         }
 
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Roll, bitch.")
-          .setDescription(text)
-          .setFooter({ text: FOOTER_TEXT });
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      if (commandName === "blackjack") {
-        const eco = getEcoUser(interaction.user.id);
-        const bet = 50;
-
-        if (eco.wallet < bet) {
-          const e = makeEmbed("you can't afford blackjack, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        const playerHand = [bjDrawCard(), bjDrawCard()];
-        const dealerHand = [bjDrawCard(), bjDrawCard()];
-
-        blackjackGames[interaction.user.id] = {
-          bet,
-          playerHand,
-          dealerHand,
-          finished: false,
-          moves: 0
-        };
-
-        const playerVal = bjHandValue(playerHand);
-        const dealerVal = bjHandValue(dealerHand);
-
-        const desc =
-          `**Bet:** ${bet} turds\n\n` +
-          `**Your hand:** ${playerHand.join(", ")} (value: ${playerVal})\n` +
-          `**Dealer hand:** ${dealerHand.join(", ")} (value: ${dealerVal})\n\n` +
-          "hit or stand, bitch.";
-
-        const embed = new EmbedBuilder()
-          .setColor("#ED0000")
-          .setTitle("Blackjack")
-          .setDescription(desc)
-          .setFooter({ text: FOOTER_TEXT });
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`bj_hit_${interaction.user.id}`)
-            .setLabel("Hit")
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId(`bj_stand_${interaction.user.id}`)
-            .setLabel("Stand")
-            .setStyle(ButtonStyle.Secondary)
-        );
-
-        return interaction.reply({ embeds: [embed], components: [row] });
-      }
-
-      // PURGE
-      if (commandName === "purge") {
-        const amount = interaction.options.getInteger("amount");
-        if (amount < 1 || amount > 100) {
-          const e = makeEmbed("1-100 only, bitch.");
-          return interaction.reply({ embeds: [e] });
-        }
-
-        await interaction.channel.bulkDelete(amount, true).catch(() => {});
-        const e = makeEmbed(`purged ${amount} messages, bitch.`);
+        const e = makeEmbed("this job ain't got a panel yet, bitch.");
         return interaction.reply({ embeds: [e] });
       }
 
-      // ANNOY
-      if (commandName === "annoy") {
-        const sub = interaction.options.getSubcommand();
-        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        if (!member || !member.roles.cache.has(ANNOY_ROLE)) {
-          const e = makeEmbed("nice try bitch, but ur a bit too young for that.");
+      // ORDER
+      if (commandName === "order") {
+        if (interaction.channel.id !== ORDER_CHANNEL) {
+          const e = makeEmbed("wrong channel, bitch. order in the right place.");
           return interaction.reply({ embeds: [e] });
         }
 
-        if (sub === "start") {
-          const target = interaction.options.getUser("user");
-          const duration = interaction.options.getInteger("duration");
+        const food = interaction.options.getString("food");
+        const order = createOrder(interaction.user.id, food);
 
-          if (duration <= 0) {
-            const e = makeEmbed("use a real duration, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Order placed, bitch.")
+          .setDescription(
+            `<@${interaction.user.id}> your order is in.\n\n` +
+            `Order #${order.id}\n` +
+            `Food: **${order.food}**`
+          )
+          .setFooter({ text: FOOTER_TEXT });
 
-          const guild = interaction.guild;
-          const channel = guild.channels.cache.get(CHAT_XP_CHANNEL);
-          if (!channel) {
-            const e = makeEmbed("annoy channel is dead, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          if (annoySessions[target.id]) {
-            const e = makeEmbed("they already getting annoyed, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          const endAt = Date.now() + duration * 1000;
-
-          const intervalId = setInterval(async () => {
-            if (Date.now() >= endAt) {
-              clearInterval(intervalId);
-              delete annoySessions[target.id];
-              return;
-            }
-
-            const roast = getRandomRoast();
-            const embed = new EmbedBuilder()
-              .setColor("#ED0000")
-              .setDescription(`<@${target.id}> ${roast}`)
-              .setFooter({ text: FOOTER_TEXT });
-
-            await channel.send({ content: `<@${target.id}>`, embeds: [embed] }).catch(() => {});
-          }, 1000);
-
-          annoySessions[target.id] = { intervalId, endAt };
-
-          const e = makeEmbed(
-            `started annoying <@${target.id}> for ${duration} seconds, bitch.`
-          );
-          return interaction.reply({ embeds: [e] });
-        }
-
-        if (sub === "end") {
-          const target = interaction.options.getUser("user");
-
-          const session = annoySessions[target.id];
-          if (!session) {
-            const e = makeEmbed("they ain't being annoyed right now, bitch.");
-            return interaction.reply({ embeds: [e] });
-          }
-
-          clearInterval(session.intervalId);
-          delete annoySessions[target.id];
-
-          const e = makeEmbed(`stopped annoying <@${target.id}>, bitch.`);
-          return interaction.reply({ embeds: [e] });
-        }
+        return interaction.reply({
+          content: `<@${interaction.user.id}>`,
+          embeds: [embed]
+        });
       }
     }
 
+    // BUTTONS & SELECT MENUS & MODALS
+    if (interaction.isButton()) {
+      const id = interaction.customId;
+
+      // Leaderboard paging
+      if (id.startsWith("lb_")) {
+        const parts = id.split("_"); // lb, type, dir, executorId, page
+        const type = parts[1];
+        const dir = parts[2];
+        const executorId = parts[3];
+        let page = parseInt(parts[4]);
+
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your leaderboard, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const pageSize = 10;
+
+        if (dir === "next") page++;
+        if (dir === "prev") page = Math.max(0, page - 1);
+
+        if (type === "economy") {
+          const entries = Object.entries(economyData.users)
+            .sort((a, b) => (b[1].wallet + b[1].bank) - (a[1].wallet + a[1].bank));
+
+          const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+
+          if (pageEntries.length === 0 && page > 0) {
+            page--;
+          }
+
+          const finalEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+
+          const desc = finalEntries
+            .map(
+              ([id2, data], i) =>
+                `#${page * pageSize + i + 1} <@${id2}> – wallet: ${data.wallet}, bank: ${data.bank}, total: ${
+                  data.wallet + data.bank
+                }`
+            )
+            .join("\n") || "no turds, bitch.";
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Economy leaderboard, bitch.")
+            .setDescription(desc)
+            .setFooter({ text: FOOTER_TEXT });
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`lb_economy_prev_${executorId}_${page}`)
+              .setLabel("Prev")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(page === 0),
+            new ButtonBuilder()
+              .setCustomId(`lb_economy_next_${executorId}_${page}`)
+              .setLabel("Next")
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(entries.length <= (page + 1) * pageSize)
+          );
+
+          return interaction.update({ embeds: [embed], components: [row] });
+        }
+
+        if (type === "chat") {
+          const entries = Object.entries(xpData.users)
+            .sort((a, b) => b[1].xp - a[1].xp);
+
+          const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+
+          if (pageEntries.length === 0 && page > 0) {
+            page--;
+          }
+
+          const finalEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+
+          const desc = finalEntries
+            .map(
+              ([id2, data], i) =>
+                `#${page * pageSize + i + 1} <@${id2}> – messages: ${data.messages}, XP: ${data.xp}`
+            )
+            .join("\n") || "no chat data, bitch.";
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Chat leaderboard, bitch.")
+            .setDescription(desc)
+            .setFooter({ text: FOOTER_TEXT });
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`lb_chat_prev_${executorId}_${page}`)
+              .setLabel("Prev")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(page === 0),
+            new ButtonBuilder()
+              .setCustomId(`lb_chat_next_${executorId}_${page}`)
+              .setLabel("Next")
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(entries.length <= (page + 1) * pageSize)
+          );
+
+          return interaction.update({ embeds: [embed], components: [row] });
+        }
+      }
+
+      // Cancel hate button
+      if (id.startsWith("cancel_hate_")) {
+        const e = makeEmbed("yeah bitch, cancelled with pure hate.");
+        return interaction.reply({ embeds: [e] });
+      }
+
+      // Orders claim / delete buttons handled via select + modal, so no extra buttons here
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      const id = interaction.customId;
+
+      // Joblist select
+      if (id.startsWith("joblist_select_")) {
+        const executorId = id.split("_")[2];
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your joblist, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const value = interaction.values[0];
+        const jobInfo = getJobUser(interaction.user.id);
+        jobInfo.job = value;
+        jobInfo.lastActivity = Date.now();
+        saveJson("jobs.json", jobsData);
+
+        if (value === "cook") {
+          const guild = interaction.guild;
+          if (guild) {
+            await guild.members.fetch();
+            const member = guild.members.cache.get(interaction.user.id);
+            if (member && !member.roles.cache.has(COOK_ROLE)) {
+              await member.roles.add(COOK_ROLE).catch(() => {});
+            }
+          }
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Job set, bitch.")
+          .setDescription(`you are now a **${value}**, bitch.`)
+          .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.update({ embeds: [embed], components: [] });
+      }
+
+      // Jobpanel cook
+      if (id.startsWith("jobpanel_cook_")) {
+        const executorId = id.split("_")[2];
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your jobpanel, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const choice = interaction.values[0];
+
+        if (choice === "orders") {
+          const pending = getPendingOrders();
+
+          let desc;
+          if (pending.length === 0) {
+            desc = "no orders right now, bitch.";
+          } else {
+            desc = pending
+              .map(
+                o =>
+                  `#${o.id} – <@${o.userId}> – food: **${o.food}**`
+              )
+              .join("\n");
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Current orders, bitch.")
+            .setDescription(desc)
+            .setFooter({ text: FOOTER_TEXT });
+
+          const options = pending.map(o => ({
+            label: `Order #${o.id}`,
+            value: String(o.id),
+            description: `food: ${o.food}`
+          }));
+
+          const selectOrders =
+            pending.length > 0
+              ? new StringSelectMenuBuilder()
+                  .setCustomId(`cook_orders_claim_${executorId}`)
+                  .setPlaceholder("Claim an order, bitch.")
+                  .addOptions(options)
+              : null;
+
+          const deleteButton =
+            pending.length > 0
+              ? new ButtonBuilder()
+                  .setCustomId(`cook_orders_delete_${executorId}`)
+                  .setLabel("Delete order, bitch.")
+                  .setStyle(ButtonStyle.Danger)
+              : null;
+
+          const backButton = new ButtonBuilder()
+            .setCustomId(`cook_orders_back_${executorId}`)
+            .setLabel("Back to panel, bitch.")
+            .setStyle(ButtonStyle.Secondary);
+
+          const rows = [];
+
+          if (selectOrders) {
+            rows.push(new ActionRowBuilder().addComponents(selectOrders));
+          }
+
+          const buttons = [];
+          if (deleteButton) buttons.push(deleteButton);
+          buttons.push(backButton);
+
+          rows.push(new ActionRowBuilder().addComponents(...buttons));
+
+          return interaction.update({ embeds: [embed], components: rows });
+        }
+
+        if (choice === "orders_log") {
+          const completed = getCookCompletedOrders(interaction.user.id);
+
+          let desc;
+          if (completed.length === 0) {
+            desc = "you got no completed orders yet, bitch.";
+          } else {
+            desc = completed
+              .map(
+                o =>
+                  `#${o.id} – <@${o.userId}> – food: **${o.food}** – delivered at: ${new Date(
+                    o.deliveredAt
+                  ).toLocaleString()}`
+              )
+              .join("\n");
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Orders log, bitch.")
+            .setDescription(desc)
+            .setFooter({ text: FOOTER_TEXT });
+
+          const backButton = new ButtonBuilder()
+            .setCustomId(`cook_orders_back_${executorId}`)
+            .setLabel("Back to panel, bitch.")
+            .setStyle(ButtonStyle.Secondary);
+
+          const row = new ActionRowBuilder().addComponents(backButton);
+
+          return interaction.update({ embeds: [embed], components: [row] });
+        }
+      }
+
+      // Cook orders claim select
+      if (id.startsWith("cook_orders_claim_")) {
+        const executorId = id.split("_")[3];
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your orders, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const orderId = parseInt(interaction.values[0]);
+        const order = ordersData.orders.find(o => o.id === orderId && o.status === "pending");
+        if (!order) {
+          const e = makeEmbed("order is gone, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`cook_order_claim_modal_${orderId}_${executorId}`)
+          .setTitle(`Deliver order #${orderId}, bitch.`);
+
+        const imgInput = new TextInputBuilder()
+          .setCustomId("image_url")
+          .setLabel("Image link, bitch.")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const outroInput = new TextInputBuilder()
+          .setCustomId("delivery_outro")
+          .setLabel("Delivery outro, bitch.")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(imgInput),
+          new ActionRowBuilder().addComponents(outroInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // Cook orders delete button
+      if (id.startsWith("cook_orders_delete_")) {
+        const executorId = id.split("_")[3];
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your orders, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const pending = getPendingOrders();
+        if (pending.length === 0) {
+          const e = makeEmbed("no orders to delete, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const options = pending.map(o => ({
+          label: `Order #${o.id}`,
+          value: String(o.id),
+          description: `food: ${o.food}`
+        }));
+
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`cook_orders_delete_select_${executorId}`)
+          .setPlaceholder("Choose order to delete, bitch.")
+          .addOptions(options);
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Delete order, bitch.")
+          .setDescription("pick an order to cancel, bitch.")
+          .setFooter({ text: FOOTER_TEXT });
+
+        const row = new ActionRowBuilder().addComponents(select);
+
+        return interaction.reply({ embeds: [embed], components: [row] });
+      }
+
+      // Cook orders delete select
+      if (id.startsWith("cook_orders_delete_select_")) {
+        const executorId = id.split("_")[4];
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your orders, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const orderId = parseInt(interaction.values[0]);
+        const order = ordersData.orders.find(o => o.id === orderId && o.status === "pending");
+        if (!order) {
+          const e = makeEmbed("order is gone, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`cook_order_delete_modal_${orderId}_${executorId}`)
+          .setTitle(`Cancel order #${orderId}, bitch.`);
+
+        const reasonInput = new TextInputBuilder()
+          .setCustomId("reason")
+          .setLabel("Reason for cancelling, bitch.")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+
+        return interaction.showModal(modal);
+      }
+
+      // Back to panel
+      if (id.startsWith("cook_orders_back_")) {
+        const executorId = id.split("_")[3];
+        if (interaction.user.id !== executorId) {
+          const e = makeEmbed("this ain't your panel, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Cook job panel, bitch.")
+          .setDescription(
+            "Use the panel, bitch.\n\n" +
+            "Options:\n" +
+            "- Orders\n" +
+            "- Orders Log"
+          )
+          .setFooter({ text: FOOTER_TEXT });
+
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`jobpanel_cook_${executorId}`)
+          .setPlaceholder("Choose panel option, bitch.")
+          .addOptions([
+            {
+              label: "Orders",
+              value: "orders",
+              description: "see current orders, bitch."
+            },
+            {
+              label: "Orders Log",
+              value: "orders_log",
+              description: "see completed orders, bitch."
+            }
+          ]);
+
+        const row = new ActionRowBuilder().addComponents(select);
+
+        return interaction.update({ embeds: [embed], components: [row] });
+      }
+    }
+
+    if (interaction.isModalSubmit()) {
+      const id = interaction.customId;
+
+      // Claim order modal
+      if (id.startsWith("cook_order_claim_modal_")) {
+        const parts = id.split("_"); // cook, order, claim, modal, orderId, cookId
+        const orderId = parseInt(parts[4]);
+        const cookId = parts[5];
+
+        if (interaction.user.id !== cookId) {
+          const e = makeEmbed("this ain't your order, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const order = ordersData.orders.find(o => o.id === orderId && o.status === "pending");
+        if (!order) {
+          const e = makeEmbed("order is gone, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const imageUrl = interaction.fields.getTextInputValue("image_url");
+        const deliveryOutro = interaction.fields.getTextInputValue("delivery_outro");
+
+        order.status = "completed";
+        order.cookId = cookId;
+        order.deliveredAt = Date.now();
+        saveJson("orders.json", ordersData);
+
+        const jobInfo = getJobUser(cookId);
+        jobInfo.lastActivity = Date.now();
+        jobInfo.completedOrders += 1;
+        saveJson("jobs.json", jobsData);
+
+        const eco = getEcoUser(cookId);
+        const payment = randomCookPayment();
+        eco.wallet += payment.amount;
+        saveJson("economy.json", economyData);
+
+        const guild = interaction.guild;
+        const member = guild ? await guild.members.fetch(cookId).catch(() => null) : null;
+        const nickname = member ? (member.nickname || member.user.username) : interaction.user.username;
+
+        const orderChannel = guild ? guild.channels.cache.get(ORDER_CHANNEL) : null;
+
+        const embed = new EmbedBuilder()
+          .setColor("#ED0000")
+          .setTitle("Order delivered, bitch.")
+          .setDescription(
+            `<@${order.userId}> your order got delivered, bitch.\n\n` +
+            `Order #${order.id}\n` +
+            `Food: **${order.food}**\n\n` +
+            `${deliveryOutro}\n\n` +
+            `Cook got **${payment.amount}** turds${
+              payment.rare ? " (CGS BITCH – rare drop)" : ""
+            }.`
+          )
+          .setImage(imageUrl)
+          .setFooter({ text: FOOTER_TEXT });
+
+        if (orderChannel) {
+          await orderChannel.send({
+            content: `<@${order.userId}>`,
+            embeds: [embed]
+          });
+        }
+
+        const confirmEmbed = makeEmbed("order delivered, bitch.");
+        await interaction.reply({ embeds: [confirmEmbed] });
+
+        try {
+          const dmEmbed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Order delivered, bitch.")
+            .setDescription(
+              `Order #${order.id} delivered.\n` +
+              `Food: **${order.food}**\n\n` +
+              `${deliveryOutro}`
+            )
+            .setImage(imageUrl)
+            .setFooter({ text: FOOTER_TEXT });
+
+          await client.users.send(order.userId, { embeds: [dmEmbed] });
+        } catch {}
+      }
+
+      // Delete order modal
+      if (id.startsWith("cook_order_delete_modal_")) {
+        const parts = id.split("_"); // cook, order, delete, modal, orderId, cookId
+        const orderId = parseInt(parts[4]);
+        const cookId = parts[5];
+
+        if (interaction.user.id !== cookId) {
+          const e = makeEmbed("this ain't your order, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const order = ordersData.orders.find(o => o.id === orderId && o.status === "pending");
+        if (!order) {
+          const e = makeEmbed("order is gone, bitch.");
+          return interaction.reply({ embeds: [e] });
+        }
+
+        const reason = interaction.fields.getTextInputValue("reason");
+
+        order.status = "cancelled";
+        order.cookId = cookId;
+        saveJson("orders.json", ordersData);
+
+        const guild = interaction.guild;
+        const member = guild ? await guild.members.fetch(cookId).catch(() => null) : null;
+        const nickname = member ? (member.nickname || member.user.username) : interaction.user.username;
+
+        try {
+          const dmEmbed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setTitle("Order cancelled, bitch.")
+            .setDescription(
+              `Order #${order.id} got cancelled, bitch.\n\n` +
+              `Reason: ${reason}`
+            )
+            .setFooter({ text: FOOTER_TEXT });
+
+          const button = new ButtonBuilder()
+            .setCustomId(`cancel_hate_${order.id}`)
+            .setLabel(`Cancelled with pure hate from: ${nickname}`)
+            .setStyle(ButtonStyle.Danger);
+
+          const row = new ActionRowBuilder().addComponents(button);
+
+          await client.users.send(order.userId, {
+            embeds: [dmEmbed],
+            components: [row]
+          });
+        } catch {}
+
+        const confirmEmbed = makeEmbed("order cancelled, bitch.");
+        return interaction.reply({ embeds: [confirmEmbed] });
+      }
+    }
   } catch (err) {
     console.error("Interaction error:", err);
     if (interaction.isRepliable()) {
@@ -2149,101 +1186,44 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ===============================
-// MESSAGE CREATE (DM + XP)
+// MESSAGE CREATE (XP + DM)
 // ===============================
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
 
-  // DM flow for pic suggestions
-  if (!msg.guild) {
-    if (!picSubmitUsers.has(msg.author.id)) return;
+  // XP system in chat channels
+  if (msg.guild) {
+    try {
+      const xpUser = getXpUser(msg.author.id);
+      xpUser.messages += 1;
+      const gained = Math.floor(Math.random() * 11) + 5;
+      xpUser.xp += gained;
+      saveJson("xpData.json", xpData);
 
-    if (!msg.attachments || msg.attachments.size === 0) {
-      const e = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription("send a pic, bitch.")
-        .setFooter({ text: FOOTER_TEXT });
-      return msg.reply({ embeds: [e] });
-    }
+      const isXpChannel =
+        msg.channel.id === CHAT_XP_CHANNEL || msg.channel.id === EXTRA_XP_CHANNEL;
 
-    const attachment = msg.attachments.first();
-    if (!attachment.contentType || !attachment.contentType.startsWith("image")) {
-      const e = new EmbedBuilder()
-        .setColor("#ED0000")
-        .setDescription("that ain't a pic, bitch.")
-        .setFooter({ text: FOOTER_TEXT });
-      return msg.reply({ embeds: [e] });
-    }
-
-    picSubmitUsers.delete(msg.author.id);
-
-    const dmConfirm = new EmbedBuilder()
-      .setColor("#00FF00")
-      .setDescription("pic submitted, bitch.")
-      .setFooter({ text: FOOTER_TEXT });
-
-    await msg.reply({ embeds: [dmConfirm] });
-
-    const channel = await client.channels.fetch(PIC_CHANNEL).catch(() => null);
-    if (!channel) return;
-
-    const postEmbed = new EmbedBuilder()
-      .setColor("#ED0000")
-      .setTitle("New pic suggestion")
-      .setDescription(`suggested by <@${msg.author.id}>`)
-      .setImage(attachment.url)
-      .setFooter({ text: FOOTER_TEXT })
-      .setTimestamp();
-
-    await channel.send({ embeds: [postEmbed] });
-    return;
-  }
-
-  // Guild XP system
-  try {
-    const guild = msg.guild;
-    if (!guild) return;
-
-    const xpUser = getXpUser(msg.author.id);
-    xpUser.messages += 1;
-    const gained = Math.floor(Math.random() * 11) + 5;
-    xpUser.xp += gained;
-
-    const oldIndex = xpUser.levelIndex;
-    const newIndex = getLevelIndexFromXp(xpUser.xp);
-    xpUser.levelIndex = newIndex;
-
-    saveJson("xpData.json", xpData);
-
-    const isXpChannel =
-      msg.channel.id === CHAT_XP_CHANNEL || msg.channel.id === EXTRA_XP_CHANNEL;
-
-    if (isXpChannel && newIndex !== oldIndex) {
-      const threshold = XP_THRESHOLDS[newIndex];
-      const member = await guild.members.fetch(msg.author.id).catch(() => null);
-      if (member) {
-        for (const t of XP_THRESHOLDS) {
-          if (member.roles.cache.has(t.role) && t.role !== ROLE_BASE) {
-            await member.roles.remove(t.role).catch(() => {});
-          }
-        }
-        await member.roles.add(threshold.role).catch(() => {});
-
+      if (isXpChannel) {
+        const guild = msg.guild;
         const channel = guild.channels.cache.get(LEVEL_CHANNEL);
         if (channel) {
           const embed = new EmbedBuilder()
             .setColor("#ED0000")
             .setDescription(
-              `-uncontrollably laughs- <@${msg.author.id}> leveled up, bitch.\n` +
-              `now rocking <@&${threshold.role}>`
+              `<@${msg.author.id}> gained **${gained}** XP, bitch.\n` +
+              `Total XP: **${xpUser.xp}**`
             )
             .setFooter({ text: FOOTER_TEXT });
-          await channel.send({ content: `<@${msg.author.id}>`, embeds: [embed] });
+
+          await channel.send({
+            content: `<@${msg.author.id}>`,
+            embeds: [embed]
+          });
         }
       }
+    } catch (e) {
+      console.error("XP error:", e);
     }
-  } catch (e) {
-    console.error("XP error:", e);
   }
 });
 
