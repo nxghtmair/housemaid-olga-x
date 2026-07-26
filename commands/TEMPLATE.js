@@ -1,11 +1,17 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { EmbedBuilder } = require("discord.js");
+
+const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName("example")
-        .setDescription("example command"),
+    name: "template",
+    description: "template command",
 
-    async execute(interaction, client, db, helpers) {
-        await interaction.reply("example");
+    async execute(interaction) {
+        const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription("template executed, bitch.")
+            .setFooter({ text: FOOTER_TEXT });
+
+        return interaction.reply({ embeds: [embed] });
     }
 };

@@ -1,77 +1,78 @@
-const { XP_THRESHOLDS, getLevelIndexFromXp } = require("../utils/xpUtils");
-const { makeEmbed } = require("../utils/embeds");
+const { EmbedBuilder } = require("discord.js");
+const fs = require("fs");
 
+const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
 const CHAT_XP_CHANNEL = "1513932845922385920";
 const LEVEL_CHANNEL = "1517175386021040138";
 
+const XP_THRESHOLDS = [
+    { xp: 0,    role: "1530590724192473240" },
+    { xp: 500,  role: "1530588907509514360" },
+    { xp: 1000, role: "1530589017140236419" },
+    { xp: 1500, role: "1530588839163199540" },
+    { xp: 2000, role: "1530588669956722770" },
+    { xp: 3000, role: "1530588534606528632" },
+    { xp: 10000,role: "1530588478352654407" }
+];
+
+function loadXp() {
+    if (!fs.existsSync("./data/xpData.json")) return { users: {} };
+    return JSON.parse(fs.readFileSync("./data/xpData.json", "utf8"));
+}
+
+function saveXp(data) {
+    fs.writeFileSync("./data/xpData.json", JSON.stringify(data, null, 2));
+}
+
+function getLevelIndex(xp) {
+    let idx = 0;
+    for (let i = 0; i < XP_THRESHOLDS.length; i++) {
+        if (xp >= XP_THRESHOLDS[i].xp) idx = i;
+    }
+    return idx;
+}
+
 module.exports = {
-    start(client, xpData, saveJson) {
-
-        const wrongChannelWarnings = new Map();
-
+    start(client) {
         client.on("messageCreate", async msg => {
             if (!msg.guild || msg.author.bot) return;
-
-            const userId = msg.author.id;
-
-            // XP only in chat XP channel
             if (msg.channel.id !== CHAT_XP_CHANNEL) return;
 
-            // Commands in XP channel = punish
-            if (msg.content.startsWith("/")) {
+            let xp = loadXp();
+            const id = msg.author.id;
 
-                if (!wrongChannelWarnings.has(userId)) {
-                    wrongChannelWarnings.set(userId, 1);
+            if (!xp.users[id]) xp.users[id] = { xp: 0, messages: 0 };
 
-                    return msg.reply({
-                        embeds: [makeEmbed("dont use commands here bitch")]
-                    });
-                }
+            xp.users[id].messages++;
+            xp.users[id].xp += 5;
 
-                const member = msg.guild.members.cache.get(userId);
-                if (member) {
-                    await member.timeout(5 * 60 * 1000, "learn how to use channels bitch");
-                }
+            const oldLevel = getLevelIndex(xp.users[id].xp - 5);
+            const newLevel = getLevelIndex(xp.users[id].xp);
 
-                return msg.reply({
-                    embeds: [makeEmbed("you grounded for 5 mins bitch")]
-                });
-            }
-
-            // XP gain (NO MESSAGE HERE)
-            const user = xpData.users[userId] || { xp: 0, messages: 0 };
-            user.messages++;
-            user.xp += 5;
-            xpData.users[userId] = user;
-            saveJson("./data/xpData.json", xpData);
-
-            // Level-up check
-            const oldLevel = getLevelIndexFromXp(user.xp - 5);
-            const newLevel = getLevelIndexFromXp(user.xp);
+            saveXp(xp);
 
             if (newLevel > oldLevel) {
                 const guild = msg.guild;
+                const member = guild.members.cache.get(id);
 
-                const currentThreshold = XP_THRESHOLDS[newLevel];
-                const nextThreshold = XP_THRESHOLDS[newLevel + 1] || null;
+                const newRole = XP_THRESHOLDS[newLevel].role;
+                const oldRole = XP_THRESHOLDS[oldLevel].role;
 
-                const nextXp = nextThreshold ? nextThreshold.xp - user.xp : 0;
+                try {
+                    await member.roles.remove(oldRole).catch(() => {});
+                    await member.roles.add(newRole).catch(() => {});
+                } catch {}
 
-                const embed = makeEmbed(
-                    `<@${userId}> leveled up bitch\n\n` +
-                    `new rank: **level ${newLevel}**\n` +
-                    (nextThreshold
-                        ? `xp until next rank: **${nextXp}**`
-                        : `you at the top bitch`)
-                );
+                const embed = new EmbedBuilder()
+                    .setColor("#ED0000")
+                    .setTitle("leveled up, bitch.")
+                    .setDescription(
+                        `<@${id}> just leveled up.\n\nnew role: <@&${newRole}>\nxp: **${xp.users[id].xp}**`
+                    )
+                    .setFooter({ text: FOOTER_TEXT });
 
-                const levelChannel = guild.channels.cache.get(LEVEL_CHANNEL);
-                if (levelChannel) {
-                    await levelChannel.send({
-                        content: `<@${userId}>`,
-                        embeds: [embed]
-                    });
-                }
+                const channel = guild.channels.cache.get(LEVEL_CHANNEL);
+                if (channel) channel.send({ content: `<@${id}>`, embeds: [embed] });
             }
         });
     }

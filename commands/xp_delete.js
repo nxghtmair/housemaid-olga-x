@@ -1,65 +1,33 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
-const { makeEmbed } = require("../utils/embeds");
-const { XP_THRESHOLDS } = require("../utils/xpUtils");
+const { EmbedBuilder } = require("discord.js");
+const fs = require("fs");
+
+const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
+
+function loadXp() {
+    if (!fs.existsSync("./data/xpData.json")) return { users: {} };
+    return JSON.parse(fs.readFileSync("./data/xpData.json", "utf8"));
+}
+
+function saveXp(data) {
+    fs.writeFileSync("./data/xpData.json", JSON.stringify(data, null, 2));
+}
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName("removexp")
-        .setDescription("remove xp bitch")
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-        .addSubcommand(s =>
-            s.setName("user")
-                .setDescription("remove xp from user bitch")
-                .addUserOption(o =>
-                    o.setName("target")
-                        .setDescription("who bitch")
-                        .setRequired(true)
-                )
-                .addIntegerOption(o =>
-                    o.setName("amount")
-                        .setDescription("how much xp bitch")
-                        .setRequired(true)
-                )
-        )
-        .addSubcommand(s =>
-            s.setName("everyone")
-                .setDescription("wipe xp from everyone bitch")
-        ),
+    name: "xp_delete",
+    description: "delete user xp",
 
-    async execute(interaction, client, db, helpers) {
-        const { xpData, saveJson } = db;
+    async execute(interaction) {
+        const target = interaction.options.getUser("user");
+        let xp = loadXp();
 
-        const sub = interaction.options.getSubcommand();
+        xp.users[target.id] = { xp: 0, messages: 0 };
+        saveXp(xp);
 
-        if (sub === "user") {
-            const target = interaction.options.getUser("target");
-            const amount = interaction.options.getInteger("amount");
+        const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription(`deleted xp of <@${target.id}>, bitch.`)
+            .setFooter({ text: FOOTER_TEXT });
 
-            const user = xpData.users[target.id] || { xp: 0, messages: 0 };
-            user.xp = Math.max(0, user.xp - amount);
-            xpData.users[target.id] = user;
-            saveJson("./data/xpData.json", xpData);
-
-            const embed = makeEmbed(
-                `removed **${amount}** xp from <@${target.id}> bitch\n` +
-                `new xp: **${user.xp}**`
-            , "XP Removed");
-
-            return interaction.reply({ embeds: [embed] });
-        }
-
-        if (sub === "everyone") {
-            for (const id in xpData.users) {
-                xpData.users[id].xp = 0;
-            }
-            saveJson("./data/xpData.json", xpData);
-
-            const embed = makeEmbed(
-                "wiped xp from everyone bitch",
-                "XP Wipe"
-            );
-
-            return interaction.reply({ embeds: [embed] });
-        }
+        return interaction.reply({ embeds: [embed] });
     }
 };

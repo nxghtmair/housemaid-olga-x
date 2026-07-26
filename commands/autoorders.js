@@ -1,38 +1,21 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
-const { makeEmbed } = require("../utils/embeds");
+const { EmbedBuilder } = require("discord.js");
+
+const FOOTER_TEXT = ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·.";
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName("autoorders")
-        .setDescription("toggle auto orders bitch")
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-        .addStringOption(o =>
-            o.setName("mode")
-                .setDescription("on or off bitch")
-                .setRequired(true)
-                .addChoices(
-                    { name: "on", value: "on" },
-                    { name: "off", value: "off" }
-                )
-        ),
+    name: "autoorders",
+    description: "toggle auto orders",
 
-    async execute(interaction, client, db, helpers) {
-        const mode = interaction.options.getString("mode");
+    async execute(interaction) {
+        const client = interaction.client;
 
-        if (!client.autoOrdersSystem) {
-            client.autoOrdersSystem = require("../systems/autoOrders");
-        }
+        client.autoOrders = !client.autoOrders;
 
-        if (mode === "on") {
-            client.autoOrdersSystem.setEnabled(true);
-            const embed = makeEmbed("autoorders turned **on** bitch", "Autoorders");
-            return interaction.reply({ embeds: [embed] });
-        }
+        const embed = new EmbedBuilder()
+            .setColor("#ED0000")
+            .setDescription(`auto orders are now **${client.autoOrders ? "on" : "off"}**, bitch.`)
+            .setFooter({ text: FOOTER_TEXT });
 
-        if (mode === "off") {
-            client.autoOrdersSystem.setEnabled(false);
-            const embed = makeEmbed("autoorders turned **off** bitch", "Autoorders");
-            return interaction.reply({ embeds: [embed] });
-        }
+        return interaction.reply({ embeds: [embed] });
     }
 };
