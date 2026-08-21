@@ -74,7 +74,7 @@ client.once("ready", async () => {
         status: "dnd",
         activities: [
             {
-                name: " ≡;- ꒰ °Olgasm: V0.9 ꒱ ",
+                name: " ≡;- Bravo Slaviniś!  ",
                 type: 3 // Watching
             }
         ]
