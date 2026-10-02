@@ -7,8 +7,10 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder
+  ActionRowBuilder,
+  PermissionFlagsBits
 } = require("discord.js");
+const fs = require("fs");
 require("dotenv").config();
 
 const client = new Client({
@@ -19,32 +21,188 @@ const client = new Client({
   ]
 });
 
-// CONSTANTS
-const AZURITE_BLUE = "#007FFF"; // normal embed color
-const BURGUNDY = "#800020"; // olgasm announce color
+// COLORS, FOOTER, CHANNELS
+const AZURITE_BLUE = "#007FFF";
+const BURGUNDY = "#800020";
 const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰 𝔖𝔢𝔞𝔰𝔬𝔫 5";
 const ANNOUNCE_CHANNEL_ID = "1553495305591328888";
 const ANNOUNCE_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555599574167457875/image.png";
+const LEADERBOARD_CHANNEL_ID = "1555618153231552584";
+const LEVEL_UP_CHANNEL_ID = "1517175386021040138";
 
-// ---------------------------------------------
-// BOT STATUS + ACTIVITY (EDIT THESE YOURSELF)
-// ---------------------------------------------
+// XP / LEVELS
+const DATA_PATH = "./data/chatLevels.json";
+
+const LEVELS = [
+  { xp: 0, name: "Rookie socializer" },
+  { xp: 200, name: "Settled socializer" },
+  { xp: 400, name: "Experienced socializer" },
+  { xp: 900, name: "professional socializer" },
+  { xp: 1800, name: "Professional Yapper" },
+  { xp: 3000, name: "Unstoppable yappinga" },
+  { xp: 6000, name: "unreal yapper" },
+  { xp: 11000, name: "the king of the chats" },
+  { xp: 30000, name: "yappinga final boss" }
+];
+
+let chatData = {
+  users: {}, // userId: { xp, messagesTotal, messagesWeek }
+  lastWeek: null
+};
+
+function loadData() {
+  try {
+    if (fs.existsSync(DATA_PATH)) {
+      const raw = fs.readFileSync(DATA_PATH, "utf8");
+      chatData = JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error("Failed to load chat data:", e);
+  }
+}
+
+function saveData() {
+  try {
+    if (!fs.existsSync("./data")) {
+      fs.mkdirSync("./data");
+    }
+    fs.writeFileSync(DATA_PATH, JSON.stringify(chatData, null, 2), "utf8");
+  } catch (e) {
+    console.error("Failed to save chat data:", e);
+  }
+}
+
+function getWeekNumber(d) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+}
+
+function ensureUser(id) {
+  if (!chatData.users[id]) {
+    chatData.users[id] = {
+      xp: 0,
+      messagesTotal: 0,
+      messagesWeek: 0
+    };
+  }
+  return chatData.users[id];
+}
+
+function getLevelIndexFromXp(xp) {
+  let idx = 0;
+  for (let i = 0; i < LEVELS.length; i++) {
+    if (xp >= LEVELS[i].xp) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+function getNextLevelInfo(xp) {
+  const currentIndex = getLevelIndexFromXp(xp);
+  const nextIndex = currentIndex + 1;
+  if (nextIndex >= LEVELS.length) return null;
+  const nextLevel = LEVELS[nextIndex];
+  return {
+    name: nextLevel.name,
+    xpToNext: nextLevel.xp - xp
+  };
+}
+
+async function sendLevelUpEmbed(userId, newLevelIndex, xp) {
+  const channel = await client.channels.fetch(LEVEL_UP_CHANNEL_ID).catch(() => null);
+  if (!channel) return;
+
+  const levelName = LEVELS[newLevelIndex].name;
+  const nextInfo = getNextLevelInfo(xp);
+
+  let desc = `-starts fingering- CONGRATS SLUTTY <@${userId}> ! youve leveled up to **${levelName}** ! `;
+  if (nextInfo) {
+    desc += `Youre **${nextInfo.xpToNext}** XP away from the next level **${nextInfo.name}** , good luck fattie!`;
+  } else {
+    desc += `You reached the highest level, yappinga final boss, you disgusting chatter freak!`;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(BURGUNDY)
+    .setDescription(desc)
+    .setFooter({ text: OLGA_FOOTER });
+
+  await channel.send({ embeds: [embed] });
+}
+
+function buildWeeklyLeaderboardEmbed() {
+  const users = Object.entries(chatData.users);
+  users.sort((a, b) => b[1].messagesWeek - a[1].messagesWeek);
+
+  const top3 = users.slice(0, 3);
+  let desc = "";
+
+  if (top3.length === 0) {
+    desc = "No chatters this week yet.";
+  } else {
+    top3.forEach(([id, data], index) => {
+      desc += `${index + 1}. <@${id}> — **${data.messagesWeek}** msgs this week\n`;
+    });
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(BURGUNDY)
+    .setTitle(":top:Top chatters this week")
+    .setDescription(desc)
+    .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png")
+    .setFooter({ text: OLGA_FOOTER });
+
+  return embed;
+}
+
+function buildOverallLeaderboardEmbed() {
+  const users = Object.entries(chatData.users);
+  users.sort((a, b) => b[1].messagesTotal - a[1].messagesTotal);
+
+  let desc = "";
+
+  if (users.length === 0) {
+    desc = "No chatters yet.";
+  } else {
+    users.forEach(([id, data], index) => {
+      desc += `${index + 1}. <@${id}> — **${data.messagesTotal}** msgs total\n`;
+    });
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(BURGUNDY)
+    .setTitle(":top:Top chatters in overall")
+    .setDescription(desc)
+    .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png")
+    .setFooter({ text: OLGA_FOOTER });
+
+  return embed;
+}
+
+async function postLeaderboards() {
+  const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID).catch(() => null);
+  if (!channel) return;
+
+  const weeklyEmbed = buildWeeklyLeaderboardEmbed();
+  const overallEmbed = buildOverallLeaderboardEmbed();
+
+  await channel.send({ embeds: [weeklyEmbed, overallEmbed] });
+}
+
+// READY
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // Set bot status directly in code
-  client.user.setStatus("idle"); 
-  // options: "online", "idle", "dnd", "invisible"
+  loadData();
 
-  // Set bot activity directly in code
+  client.user.setStatus("idle");
   client.user.setActivity("𝕺𝖑𝖌𝖆𝖘𝖒𝟐𝟒' | 𝕾𝖊𝖆𝖘𝖔𝖓 𝟓 📰", {
     type: ActivityType.Playing
   });
-  // types: ActivityType.Playing, Watching, Listening, Competing
 
-  // ---------------------------------------------
-  // REGISTER SLASH COMMANDS
-  // ---------------------------------------------
   const commands = [
     new SlashCommandBuilder()
       .setName("embed")
@@ -100,16 +258,94 @@ client.once("ready", async () => {
           .setName("text")
           .setDescription("Activity text")
           .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("lb")
+      .setDescription("Leaderboards")
+      .addSubcommand(sub =>
+        sub
+          .setName("chat")
+          .setDescription("Chatting leaderboard")
+      ),
+
+    new SlashCommandBuilder()
+      .setName("addxp")
+      .setDescription("Add XP to a user")
+      .addUserOption(opt =>
+        opt
+          .setName("user")
+          .setDescription("User to add XP to")
+          .setRequired(true)
+      )
+      .addIntegerOption(opt =>
+        opt
+          .setName("amount")
+          .setDescription("Amount of XP to add")
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("removexp")
+      .setDescription("Remove XP from a user")
+      .addUserOption(opt =>
+        opt
+          .setName("user")
+          .setDescription("User to remove XP from")
+          .setRequired(true)
+      )
+      .addIntegerOption(opt =>
+        opt
+          .setName("amount")
+          .setDescription("Amount of XP to remove")
+          .setRequired(true)
       )
   ].map(c => c.toJSON());
 
   await client.application.commands.set(commands);
   console.log("Slash commands registered.");
+
+  setInterval(postLeaderboards, 5 * 60 * 1000);
 });
 
-// ---------------------------------------------
-// INTERACTION HANDLER
-// ---------------------------------------------
+// MESSAGE HANDLER (XP + LEVELS)
+client.on("messageCreate", async (msg) => {
+  if (!msg.guild || msg.author.bot) return;
+
+  const now = new Date();
+  const currentWeek = getWeekNumber(now);
+  if (chatData.lastWeek === null) {
+    chatData.lastWeek = currentWeek;
+  } else if (chatData.lastWeek !== currentWeek) {
+    // new week: reset weekly counts
+    for (const id in chatData.users) {
+      chatData.users[id].messagesWeek = 0;
+    }
+    chatData.lastWeek = currentWeek;
+  }
+
+  const userId = msg.author.id;
+  const userData = ensureUser(userId);
+
+  const oldXp = userData.xp;
+  const oldLevelIndex = getLevelIndexFromXp(oldXp);
+
+  userData.messagesTotal += 1;
+  userData.messagesWeek += 1;
+
+  const hasAttachment = msg.attachments.size > 0;
+  const xpGain = hasAttachment ? 4 : 2;
+  userData.xp += xpGain;
+
+  saveData();
+
+  const newLevelIndex = getLevelIndexFromXp(userData.xp);
+  if (newLevelIndex > oldLevelIndex) {
+    await sendLevelUpEmbed(userId, newLevelIndex, userData.xp);
+  }
+});
+
+// INTERACTIONS
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isChatInputCommand()) {
     const name = interaction.commandName;
@@ -206,13 +442,102 @@ client.on("interactionCreate", async (interaction) => {
       client.user.setActivity(text, { type: types[type] });
       return interaction.reply({ content: `Activity set to ${type} ${text}`, ephemeral: true });
     }
+
+    // /lb chat
+    if (name === "lb") {
+      if (interaction.options.getSubcommand() === "chat") {
+        const users = Object.entries(chatData.users);
+        users.sort((a, b) => b[1].messagesTotal - a[1].messagesTotal);
+
+        let desc = "";
+
+        if (users.length === 0) {
+          desc = "No chatters yet.";
+        } else {
+          users.forEach(([id, data], index) => {
+            const levelIndex = getLevelIndexFromXp(data.xp);
+            const levelName = LEVELS[levelIndex].name;
+            const nextInfo = getNextLevelInfo(data.xp);
+            const xpToNext = nextInfo ? nextInfo.xpToNext : 0;
+
+            desc += `${index + 1}. <@${id}> — **${data.messagesTotal}** msgs, **${data.xp}** XP, level: **${levelName}**`;
+            if (nextInfo) {
+              desc += `, **${xpToNext}** XP until **${nextInfo.name}**`;
+            } else {
+              desc += `, at max level`;
+            }
+            desc += `\n`;
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(BURGUNDY)
+          .setTitle(":top:Chatting leaderboard")
+          .setDescription(desc)
+          .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png")
+          .setFooter({ text: OLGA_FOOTER });
+
+        return interaction.reply({ embeds: [embed] });
+      }
+    }
+
+    // /addxp
+    if (name === "addxp") {
+      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
+      }
+
+      const user = interaction.options.getUser("user", true);
+      const amount = interaction.options.getInteger("amount", true);
+
+      const data = ensureUser(user.id);
+      const oldLevelIndex = getLevelIndexFromXp(data.xp);
+
+      data.xp += amount;
+      if (data.xp < 0) data.xp = 0;
+
+      saveData();
+
+      const newLevelIndex = getLevelIndexFromXp(data.xp);
+      if (newLevelIndex > oldLevelIndex) {
+        await sendLevelUpEmbed(user.id, newLevelIndex, data.xp);
+      }
+
+      return interaction.reply({
+        content: `Added **${amount}** XP to <@${user.id}>. They now have **${data.xp}** XP.`,
+        ephemeral: true
+      });
+    }
+
+    // /removexp
+    if (name === "removexp") {
+      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
+      }
+
+      const user = interaction.options.getUser("user", true);
+      const amount = interaction.options.getInteger("amount", true);
+
+      const data = ensureUser(user.id);
+      const oldLevelIndex = getLevelIndexFromXp(data.xp);
+
+      data.xp -= amount;
+      if (data.xp < 0) data.xp = 0;
+
+      saveData();
+
+      const newLevelIndex = getLevelIndexFromXp(data.xp);
+      // level down is automatic by xp; no special message
+
+      return interaction.reply({
+        content: `Removed **${amount}** XP from <@${user.id}>. They now have **${data.xp}** XP.`,
+        ephemeral: true
+      });
+    }
   }
 
-  // ---------------------------------------------
-  // MODAL SUBMISSIONS
-  // ---------------------------------------------
+  // MODALS
   if (interaction.isModalSubmit()) {
-    // embed create modal
     if (interaction.customId === "embed_create_modal") {
       const title = interaction.fields.getTextInputValue("title");
       const description = interaction.fields.getTextInputValue("description");
@@ -235,7 +560,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: "Embed sent.", ephemeral: true });
     }
 
-    // olgasm announce modal
     if (interaction.customId === "olgasm_announce_modal") {
       const description = interaction.fields.getTextInputValue("description");
 
@@ -246,8 +570,10 @@ client.on("interactionCreate", async (interaction) => {
         .setImage(ANNOUNCE_BANNER)
         .setFooter({ text: OLGA_FOOTER });
 
-      const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID);
-      await channel.send({ embeds: [embed] });
+      const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID).catch(() => null);
+      if (channel) {
+        await channel.send({ embeds: [embed] });
+      }
 
       return interaction.reply({
         content: `Announcement sent to <#${ANNOUNCE_CHANNEL_ID}>`,
