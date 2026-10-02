@@ -35,8 +35,8 @@ client.once("ready", async () => {
   // options: "online", "idle", "dnd", "invisible"
 
   // Set bot activity directly in code
-  client.user.setActivity("Serving Olga Season 5", {
-    type: ActivityType.Playing
+  client.user.setActivity("OLGASM24'; Season 5", {
+    type: ActivityType.Watching
   });
   // types: ActivityType.Playing, Watching, Listening, Competing
 
