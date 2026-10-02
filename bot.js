@@ -1,338 +1,256 @@
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActivityType,
+  SlashCommandBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder
+} = require("discord.js");
 require("dotenv").config();
 
-const {
-    Client,
-    GatewayIntentBits,
-    Partials,
-    EmbedBuilder
-} = require("discord.js");
-
-const fs = require("fs");
-const path = require("path");
-
-// ===============================
-// LOAD UTILS
-// ===============================
-const { loadJson, saveJson } = require("./utils/json");
-const { makeEmbed } = require("./utils/embeds");
-
-// ===============================
-// LOAD DATA
-// ===============================
-const xpData = loadJson("./data/xpData.json", { users: {} });
-const economyData = loadJson("./data/economy.json", { users: {} });
-const jobsData = loadJson("./data/jobs.json", { users: {} });
-const ordersData = loadJson("./data/orders.json", { nextId: 1, orders: [] });
-
-// ===============================
-// CLIENT
-// ===============================
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.DirectMessages
-    ],
-    partials: [Partials.Channel]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
-// ===============================
-// COMMAND LOADER
-// ===============================
-client.commands = new Map();
+// CONSTANTS
+const AZURITE_BLUE = "#007FFF";
+const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰 𝔖𝔢𝔞𝔰𝔬𝔫 5";
+const ANNOUNCE_CHANNEL_ID = "1553495305591328888";
 
-const commandsPath = path.join(__dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"));
-
-for (const file of commandFiles) {
-    const cmd = require(`./commands/${file}`);
-    client.commands.set(cmd.name, cmd);
-}
-
-console.log(`Loaded ${client.commands.size} commands.`);
-
-// ===============================
-// SYSTEMS
-// ===============================
-const xpSystem = require("./systems/xpSystem");
-const cookSystem = require("./systems/cookSystem");
-const autoOrdersSystem = require("./systems/autoOrders");
-const salarySystem = require("./systems/salary");
-
-client.autoOrdersSystem = autoOrdersSystem;
-
-// ===============================
-// READY
-// ===============================
+// ---------------------------------------------
+// BOT STATUS + ACTIVITY (EDIT THESE YOURSELF)
+// ---------------------------------------------
 client.once("ready", async () => {
-    console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Logged in as ${client.user.tag}`);
 
-    // Set bot status + activity
-    client.user.setPresence({
-        status: "dnd",
-        activities: [
-            {
-                name: " ≡;- Bravo Slaviniś!  ",
-                type: 3 // Watching
-            }
-        ]
-    });
+  // Set bot status directly in code
+  client.user.setStatus("dnd"); 
+  // options: "online", "idle", "dnd", "invisible"
 
-    // Start systems
-    xpSystem.start(client);
-    cookSystem.start(client, jobsData, ordersData, saveJson);
-    autoOrdersSystem.start(client, ordersData, saveJson);
-    salarySystem.start(client, jobsData, economyData, saveJson);
+  // Set bot activity directly in code
+  client.user.setActivity("Serving Olga Season 5", {
+    type: ActivityType.Playing
+  });
+  // types: ActivityType.Playing, Watching, Listening, Competing
 
-    console.log("Systems started.");
+  // ---------------------------------------------
+  // REGISTER SLASH COMMANDS
+  // ---------------------------------------------
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("embed")
+      .setDescription("Embed tools")
+      .addSubcommand(sub =>
+        sub
+          .setName("create")
+          .setDescription("Create a custom embed")
+      ),
+
+    new SlashCommandBuilder()
+      .setName("olgasm")
+      .setDescription("Olga utilities")
+      .addSubcommand(sub =>
+        sub
+          .setName("announce")
+          .setDescription("Create an Olga announcement embed")
+      ),
+
+    new SlashCommandBuilder()
+      .setName("setstatus")
+      .setDescription("Set bot status")
+      .addStringOption(opt =>
+        opt
+          .setName("status")
+          .setDescription("online | idle | dnd | invisible")
+          .setRequired(true)
+          .addChoices(
+            { name: "online", value: "online" },
+            { name: "idle", value: "idle" },
+            { name: "dnd", value: "dnd" },
+            { name: "invisible", value: "invisible" }
+          )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("setactivity")
+      .setDescription("Set bot activity")
+      .addStringOption(opt =>
+        opt
+          .setName("type")
+          .setDescription("playing | watching | listening | competing")
+          .setRequired(true)
+          .addChoices(
+            { name: "playing", value: "playing" },
+            { name: "watching", value: "watching" },
+            { name: "listening", value: "listening" },
+            { name: "competing", value: "competing" }
+          )
+      )
+      .addStringOption(opt =>
+        opt
+          .setName("text")
+          .setDescription("Activity text")
+          .setRequired(true)
+      )
+  ].map(c => c.toJSON());
+
+  await client.application.commands.set(commands);
+  console.log("Slash commands registered.");
 });
 
-// ===============================
+// ---------------------------------------------
 // INTERACTION HANDLER
-// ===============================
+// ---------------------------------------------
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isChatInputCommand()) {
+    const name = interaction.commandName;
 
-    // Slash commands
-    if (interaction.isChatInputCommand()) {
+    // /embed create
+    if (name === "embed") {
+      if (interaction.options.getSubcommand() === "create") {
+        const modal = new ModalBuilder()
+          .setCustomId("embed_create_modal")
+          .setTitle("Create Custom Embed");
 
-        // Bot lock check
-        if (client.botLocked && interaction.user.id !== "1193517948401373257") {
-            return interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription("bot is locked, bitch.")
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ]
-            });
-        }
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("title")
+              .setLabel("Title (optional)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("description")
+              .setLabel("Description (required)")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("text")
+              .setLabel("Extra text (optional)")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("thumbnail")
+              .setLabel("Thumbnail URL (optional)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("image")
+              .setLabel("Image URL (optional)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          )
+        );
 
-        const cmd = client.commands.get(interaction.commandName);
-        if (!cmd) {
-            return interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription("this command is dead, bitch.")
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ]
-            });
-        }
-
-        try {
-            await cmd.execute(interaction);
-        } catch (err) {
-            console.error(err);
-
-            return interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription("error executing command, bitch.")
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ]
-            });
-        }
+        return interaction.showModal(modal);
+      }
     }
 
-    // Buttons
-    if (interaction.isButton()) {
-        const id = interaction.customId;
+    // /olgasm announce
+    if (name === "olgasm") {
+      if (interaction.options.getSubcommand() === "announce") {
+        const modal = new ModalBuilder()
+          .setCustomId("olgasm_announce_modal")
+          .setTitle("Olga Announcement");
 
-        // FAMILY SYSTEM BUTTONS
-        if (id.startsWith("family_")) {
-            const parts = id.split("_");
-            const type = parts[1];
-            const decision = parts[2];
-            const a = parts[3];
-            const b = parts[4];
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("description")
+              .setLabel("Announcement description")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+          )
+        );
 
-            const family = loadJson("./data/family.json", { marriages: [], parents: [] });
-
-            if (decision === "no") {
-                return interaction.update({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor("#ED0000")
-                            .setDescription("they said no, bitch.")
-                            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                    ],
-                    components: []
-                });
-            }
-
-            if (type === "marry") {
-                family.marriages.push({ a, b });
-            }
-
-            if (type === "adopt") {
-                family.parents.push({ parent: a, child: b });
-            }
-
-            saveJson("./data/family.json", family);
-
-            return interaction.update({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription("confirmed, bitch.")
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ],
-                components: []
-            });
-        }
-
-        // BLACKJACK BUTTONS
-        if (id.startsWith("bj_")) {
-            const parts = id.split("_");
-            const action = parts[1];
-            const uid = parts[2];
-
-            if (interaction.user.id !== uid) {
-                return interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor("#ED0000")
-                            .setDescription("this ain't your game, bitch.")
-                            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                    ]
-                });
-            }
-
-            const game = client.blackjackGames?.[uid];
-            if (!game || game.finished) {
-                return interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor("#ED0000")
-                            .setDescription("game is over, bitch.")
-                            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                    ]
-                });
-            }
-
-            // Blackjack logic continues in blackjack.js
-        }
+        return interaction.showModal(modal);
+      }
     }
 
-    // Select menus
-    if (interaction.isStringSelectMenu()) {
-        const id = interaction.customId;
-
-        // JOBLIST SELECT
-        if (id.startsWith("joblist_select_")) {
-            const userId = id.split("_")[2];
-
-            if (interaction.user.id !== userId) {
-                return interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor("#ED0000")
-                            .setDescription("this ain't your joblist, bitch.")
-                            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                    ]
-                });
-            }
-
-            const jobs = loadJson("./data/jobs.json", { users: {} });
-            const job = interaction.values[0];
-
-            jobs.users[userId].job = job;
-            jobs.users[userId].lastActivity = Date.now();
-
-            saveJson("./data/jobs.json", jobs);
-
-            return interaction.update({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription(`you are now a **${job}**, bitch.`)
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ],
-                components: []
-            });
-        }
+    // /setstatus
+    if (name === "setstatus") {
+      const status = interaction.options.getString("status");
+      client.user.setStatus(status);
+      return interaction.reply({ content: `Status set to ${status}`, ephemeral: true });
     }
 
-    // Modal submits
-    if (interaction.isModalSubmit()) {
-        const id = interaction.customId;
+    // /setactivity
+    if (name === "setactivity") {
+      const type = interaction.options.getString("type");
+      const text = interaction.options.getString("text");
 
-        // EMBED CREATE
-        if (id === "embed_modal") {
-            const title = interaction.fields.getTextInputValue("embed_title");
-            const desc = interaction.fields.getTextInputValue("embed_desc");
-            const image = interaction.fields.getTextInputValue("embed_image");
-            const footer = interaction.fields.getTextInputValue("embed_footer");
+      const types = {
+        playing: ActivityType.Playing,
+        watching: ActivityType.Watching,
+        listening: ActivityType.Listening,
+        competing: ActivityType.Competing
+      };
 
-            const embed = new EmbedBuilder()
-                .setColor("#ED0000")
-                .setDescription(desc)
-                .setFooter({ text: footer || ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-            if (title) embed.setTitle(title);
-            if (image) embed.setImage(image);
-
-            await interaction.channel.send({ embeds: [embed] });
-
-            return interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription("embed sent, bitch.")
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ]
-            });
-        }
-
-        // EMBED EDIT
-        if (id.startsWith("embed_edit_")) {
-            const msgId = id.split("_")[2];
-
-            const newTitle = interaction.fields.getTextInputValue("embed_title");
-            const newDesc = interaction.fields.getTextInputValue("embed_desc");
-            const newImage = interaction.fields.getTextInputValue("embed_image");
-            const newFooter = interaction.fields.getTextInputValue("embed_footer");
-
-            const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
-            if (!msg || !msg.embeds.length) {
-                return interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor("#ED0000")
-                            .setDescription("message is dead, bitch.")
-                            .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                    ]
-                });
-            }
-
-            const old = msg.embeds[0];
-            const embed = new EmbedBuilder()
-                .setColor(old.color || "#ED0000")
-                .setTitle(newTitle || old.title)
-                .setDescription(newDesc || old.description)
-                .setFooter({ text: newFooter || old.footer?.text || ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." });
-
-            if (newImage) embed.setImage(newImage);
-            else if (old.image) embed.setImage(old.image.url);
-
-            await msg.edit({ embeds: [embed] });
-
-            return interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor("#ED0000")
-                        .setDescription("embed edited, bitch.")
-                        .setFooter({ text: ".·:*¨¨* ≈Olga family: Season 4≈ *¨¨*:·." })
-                ]
-            });
-        }
+      client.user.setActivity(text, { type: types[type] });
+      return interaction.reply({ content: `Activity set to ${type} ${text}`, ephemeral: true });
     }
+  }
+
+  // ---------------------------------------------
+  // MODAL SUBMISSIONS
+  // ---------------------------------------------
+  if (interaction.isModalSubmit()) {
+    // embed create modal
+    if (interaction.customId === "embed_create_modal") {
+      const title = interaction.fields.getTextInputValue("title");
+      const description = interaction.fields.getTextInputValue("description");
+      const text = interaction.fields.getTextInputValue("text");
+      const thumbnail = interaction.fields.getTextInputValue("thumbnail");
+      const image = interaction.fields.getTextInputValue("image");
+
+      const embed = new EmbedBuilder()
+        .setColor(AZURITE_BLUE)
+        .setDescription(description)
+        .setFooter({ text: OLGA_FOOTER });
+
+      if (title) embed.setTitle(title);
+      if (thumbnail) embed.setThumbnail(thumbnail);
+      if (image) embed.setImage(image);
+      if (text) embed.addFields({ name: "Text", value: text });
+
+      await interaction.channel.send({ embeds: [embed] });
+
+      return interaction.reply({ content: "Embed sent.", ephemeral: true });
+    }
+
+    // olgasm announce modal
+    if (interaction.customId === "olgasm_announce_modal") {
+      const description = interaction.fields.getTextInputValue("description");
+
+      const embed = new EmbedBuilder()
+        .setColor(AZURITE_BLUE)
+        .setDescription(description)
+        .setFooter({ text: OLGA_FOOTER });
+
+      const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID);
+      await channel.send({ embeds: [embed] });
+
+      return interaction.reply({
+        content: `Announcement sent to <#${ANNOUNCE_CHANNEL_ID}>`,
+        ephemeral: true
+      });
+    }
+  }
 });
 
-// ===============================
-// LOGIN
-// ===============================
 client.login(process.env.TOKEN);
