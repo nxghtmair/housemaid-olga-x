@@ -20,8 +20,9 @@ const client = new Client({
 });
 
 // CONSTANTS
-const AZURITE_BLUE = "#007FFF";
-const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰 𝔖𝔢𝔞𝔰𝔬𝔫 5";
+const AZURITE_BLUE = "#007FFF"; // normal embed color
+const BURGUNDY = "#800020"; // olgasm announce color
+const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰: 𝔖𝔢𝔞𝔰𝔬𝔫 5";
 const ANNOUNCE_CHANNEL_ID = "1553495305591328888";
 
 // ---------------------------------------------
@@ -31,12 +32,12 @@ client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   // Set bot status directly in code
-  client.user.setStatus("dnd"); 
+  client.user.setStatus("idle"); 
   // options: "online", "idle", "dnd", "invisible"
 
   // Set bot activity directly in code
-  client.user.setActivity("OLGASM24'; Season 5", {
-    type: ActivityType.Watching
+  client.user.setActivity("𝕺𝖑𝖌𝖆𝖘𝖒𝟐𝟒' | 𝕾𝖊𝖆𝖘𝖔𝖓 𝟓 📰", {
+    type: ActivityType.Playing
   });
   // types: ActivityType.Playing, Watching, Listening, Competing
 
@@ -238,7 +239,8 @@ client.on("interactionCreate", async (interaction) => {
       const description = interaction.fields.getTextInputValue("description");
 
       const embed = new EmbedBuilder()
-        .setColor(AZURITE_BLUE)
+        .setColor(BURGUNDY)
+        .setTitle("📰 OLGASM 24' NEWS")
         .setDescription(description)
         .setFooter({ text: OLGA_FOOTER });
 
