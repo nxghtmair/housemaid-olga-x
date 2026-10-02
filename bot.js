@@ -21,17 +21,18 @@ const client = new Client({
   ]
 });
 
-// COLORS, FOOTER, CHANNELS
+// COLORS, FOOTER, CHANNELS, BANNERS
 const AZURITE_BLUE = "#007FFF";
 const BURGUNDY = "#800020";
 const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰 𝔖𝔢𝔞𝔰𝔬𝔫 5";
 const ANNOUNCE_CHANNEL_ID = "1553495305591328888";
 const ANNOUNCE_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555599574167457875/image.png";
-const LEADERBOARD_CHANNEL_ID = "1555618153231552584";
+const LEADERBOARD_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png";
 const LEVEL_UP_CHANNEL_ID = "1517175386021040138";
 
 // XP / LEVELS
-const DATA_PATH = "./data/chatLevels.json";
+const CHAT_DATA_PATH = "./data/chatLevels.json";
+const STATS_DATA_PATH = "./data/stats.json";
 
 const LEVELS = [
   { xp: 0, name: "Rookie socializer" },
@@ -50,10 +51,22 @@ let chatData = {
   lastWeek: null
 };
 
-function loadData() {
+let statsData = {
+  leaderboardChannel: null,
+  leaderboardMessage: null
+};
+
+function ensureDataFolder() {
+  if (!fs.existsSync("./data")) {
+    fs.mkdirSync("./data");
+  }
+}
+
+function loadChatData() {
+  ensureDataFolder();
   try {
-    if (fs.existsSync(DATA_PATH)) {
-      const raw = fs.readFileSync(DATA_PATH, "utf8");
+    if (fs.existsSync(CHAT_DATA_PATH)) {
+      const raw = fs.readFileSync(CHAT_DATA_PATH, "utf8");
       chatData = JSON.parse(raw);
     }
   } catch (e) {
@@ -61,14 +74,33 @@ function loadData() {
   }
 }
 
-function saveData() {
+function saveChatData() {
+  ensureDataFolder();
   try {
-    if (!fs.existsSync("./data")) {
-      fs.mkdirSync("./data");
-    }
-    fs.writeFileSync(DATA_PATH, JSON.stringify(chatData, null, 2), "utf8");
+    fs.writeFileSync(CHAT_DATA_PATH, JSON.stringify(chatData, null, 2), "utf8");
   } catch (e) {
     console.error("Failed to save chat data:", e);
+  }
+}
+
+function loadStatsData() {
+  ensureDataFolder();
+  try {
+    if (fs.existsSync(STATS_DATA_PATH)) {
+      const raw = fs.readFileSync(STATS_DATA_PATH, "utf8");
+      statsData = JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error("Failed to load stats data:", e);
+  }
+}
+
+function saveStatsData() {
+  ensureDataFolder();
+  try {
+    fs.writeFileSync(STATS_DATA_PATH, JSON.stringify(statsData, null, 2), "utf8");
+  } catch (e) {
+    console.error("Failed to save stats data:", e);
   }
 }
 
@@ -150,9 +182,9 @@ function buildWeeklyLeaderboardEmbed() {
 
   const embed = new EmbedBuilder()
     .setColor(BURGUNDY)
-    .setTitle(":top:Top chatters this week")
+    .setTitle("💭 Top chatters this week")
     .setDescription(desc)
-    .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png")
+    .setImage(LEADERBOARD_BANNER)
     .setFooter({ text: OLGA_FOOTER });
 
   return embed;
@@ -174,29 +206,43 @@ function buildOverallLeaderboardEmbed() {
 
   const embed = new EmbedBuilder()
     .setColor(BURGUNDY)
-    .setTitle(":top:Top chatters in overall")
+    .setTitle("💭 Top chatters in overall")
     .setDescription(desc)
-    .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png")
+    .setImage(LEADERBOARD_BANNER)
     .setFooter({ text: OLGA_FOOTER });
 
   return embed;
 }
 
-async function postLeaderboards() {
-  const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID).catch(() => null);
+async function updateLeaderboards() {
+  const channelId = statsData.leaderboardChannel;
+  if (!channelId) return;
+
+  const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return;
 
   const weeklyEmbed = buildWeeklyLeaderboardEmbed();
   const overallEmbed = buildOverallLeaderboardEmbed();
 
-  await channel.send({ embeds: [weeklyEmbed, overallEmbed] });
+  if (statsData.leaderboardMessage) {
+    const msg = await channel.messages.fetch(statsData.leaderboardMessage).catch(() => null);
+    if (msg) {
+      await msg.edit({ embeds: [weeklyEmbed, overallEmbed] });
+      return;
+    }
+  }
+
+  const newMsg = await channel.send({ embeds: [weeklyEmbed, overallEmbed] });
+  statsData.leaderboardMessage = newMsg.id;
+  saveStatsData();
 }
 
 // READY
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  loadData();
+  loadChatData();
+  loadStatsData();
 
   client.user.setStatus("idle");
   client.user.setActivity("𝕺𝖑𝖌𝖆𝖘𝖒𝟐𝟒' | 𝕾𝖊𝖆𝖘𝖔𝖓 𝟓 📰", {
@@ -299,13 +345,28 @@ client.once("ready", async () => {
           .setName("amount")
           .setDescription("Amount of XP to remove")
           .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("statsch")
+      .setDescription("Set stats/leaderboard channel")
+      .addSubcommand(sub =>
+        sub
+          .setName("set")
+          .setDescription("Set the stats channel")
+          .addChannelOption(opt =>
+            opt
+              .setName("channel")
+              .setDescription("Channel to use for stats leaderboards")
+              .setRequired(true)
+          )
       )
   ].map(c => c.toJSON());
 
   await client.application.commands.set(commands);
   console.log("Slash commands registered.");
 
-  setInterval(postLeaderboards, 5 * 60 * 1000);
+  setInterval(updateLeaderboards, 5 * 60 * 1000);
 });
 
 // MESSAGE HANDLER (XP + LEVELS)
@@ -317,7 +378,6 @@ client.on("messageCreate", async (msg) => {
   if (chatData.lastWeek === null) {
     chatData.lastWeek = currentWeek;
   } else if (chatData.lastWeek !== currentWeek) {
-    // new week: reset weekly counts
     for (const id in chatData.users) {
       chatData.users[id].messagesWeek = 0;
     }
@@ -337,7 +397,7 @@ client.on("messageCreate", async (msg) => {
   const xpGain = hasAttachment ? 4 : 2;
   userData.xp += xpGain;
 
-  saveData();
+  saveChatData();
 
   const newLevelIndex = getLevelIndexFromXp(userData.xp);
   if (newLevelIndex > oldLevelIndex) {
@@ -472,9 +532,9 @@ client.on("interactionCreate", async (interaction) => {
 
         const embed = new EmbedBuilder()
           .setColor(BURGUNDY)
-          .setTitle(":top:Chatting leaderboard")
+          .setTitle("💭 Chatting leaderboard")
           .setDescription(desc)
-          .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png")
+          .setImage(LEADERBOARD_BANNER)
           .setFooter({ text: OLGA_FOOTER });
 
         return interaction.reply({ embeds: [embed] });
@@ -496,7 +556,7 @@ client.on("interactionCreate", async (interaction) => {
       data.xp += amount;
       if (data.xp < 0) data.xp = 0;
 
-      saveData();
+      saveChatData();
 
       const newLevelIndex = getLevelIndexFromXp(data.xp);
       if (newLevelIndex > oldLevelIndex) {
@@ -519,20 +579,35 @@ client.on("interactionCreate", async (interaction) => {
       const amount = interaction.options.getInteger("amount", true);
 
       const data = ensureUser(user.id);
-      const oldLevelIndex = getLevelIndexFromXp(data.xp);
 
       data.xp -= amount;
       if (data.xp < 0) data.xp = 0;
 
-      saveData();
-
-      const newLevelIndex = getLevelIndexFromXp(data.xp);
-      // level down is automatic by xp; no special message
+      saveChatData();
 
       return interaction.reply({
         content: `Removed **${amount}** XP from <@${user.id}>. They now have **${data.xp}** XP.`,
         ephemeral: true
       });
+    }
+
+    // /statsch set
+    if (name === "statsch") {
+      if (interaction.options.getSubcommand() === "set") {
+        if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
+        }
+
+        const channel = interaction.options.getChannel("channel", true);
+        statsData.leaderboardChannel = channel.id;
+        statsData.leaderboardMessage = null;
+        saveStatsData();
+
+        return interaction.reply({
+          content: `Stats/leaderboard channel set to ${channel}. Leaderboard will update every 5 minutes.`,
+          ephemeral: true
+        });
+      }
     }
   }
 
