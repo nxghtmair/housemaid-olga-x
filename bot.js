@@ -22,8 +22,9 @@ const client = new Client({
 // CONSTANTS
 const AZURITE_BLUE = "#007FFF"; // normal embed color
 const BURGUNDY = "#800020"; // olgasm announce color
-const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰: 𝔖𝔢𝔞𝔰𝔬𝔫 5";
+const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰 𝔖𝔢𝔞𝔰𝔬𝔫 5";
 const ANNOUNCE_CHANNEL_ID = "1553495305591328888";
+const ANNOUNCE_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555599574167457875/image.png";
 
 // ---------------------------------------------
 // BOT STATUS + ACTIVITY (EDIT THESE YOURSELF)
@@ -242,6 +243,7 @@ client.on("interactionCreate", async (interaction) => {
         .setColor(BURGUNDY)
         .setTitle("📰 OLGASM 24' NEWS")
         .setDescription(description)
+        .setImage(ANNOUNCE_BANNER)
         .setFooter({ text: OLGA_FOOTER });
 
       const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID);
