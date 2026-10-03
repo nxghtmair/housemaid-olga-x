@@ -259,6 +259,16 @@ client.once("ready", async () => {
           .setDescription("Create a custom embed")
       ),
 
+      new SlashCommandBuilder()
+  .setName("rr")
+  .setDescription("Reaction roles system")
+  .addSubcommand(sub =>
+    sub
+      .setName("create")
+      .setDescription("Create a reaction roles embed")
+  ),
+
+
     new SlashCommandBuilder()
       .setName("olgasm")
       .setDescription("Olga utilities")
@@ -409,6 +419,151 @@ client.on("messageCreate", async (msg) => {
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isChatInputCommand()) {
     const name = interaction.commandName;
+
+// BUTTON HANDLER (Reaction Roles)
+if (interaction.isButton()) {
+  if (interaction.customId.startsWith("rr_")) {
+  const roleId = interaction.customId.replace("rr_", "");
+  const role = interaction.guild.roles.cache.get(roleId);
+
+  if (!role) {
+    return interaction.reply({ content: "Role not found.", ephemeral: true });
+  }
+
+  const member = interaction.member;
+
+  if (member.roles.cache.has(roleId)) {
+    await member.roles.remove(roleId);
+    return interaction.reply({ content: `Removed role **${role.name}**`, ephemeral: true });
+  } else {
+    await member.roles.add(roleId);
+    return interaction.reply({ content: `Added role **${role.name}**`, ephemeral: true });
+  }
+}
+
+  if (interaction.customId.startsWith("rr_")) {
+    const roleId = interaction.customId.replace("rr_", "");
+    const role = interaction.guild.roles.cache.get(roleId);
+
+    if (!role) {
+      return interaction.reply({ content: "Role not found.", ephemeral: true });
+    }
+
+    const member = interaction.member;
+
+    // Toggle role
+    if (member.roles.cache.has(roleId)) {
+      await member.roles.remove(roleId);
+      return interaction.reply({
+        content: `Removed role **${role.name}**`,
+        ephemeral: true
+      });
+    } else {
+      await member.roles.add(roleId);
+      return interaction.reply({
+        content: `Added role **${role.name}**`,
+        ephemeral: true
+      });
+    }
+  }
+}
+
+
+// /rr create
+if (name === "rr") {
+  if (interaction.options.getSubcommand() === "create") {
+    if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId("rr_create_modal")
+      .setTitle("Create Reaction Roles");
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Embed description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("emoji1")
+          .setLabel("Emoji 1")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("role1")
+          .setLabel("Role name 1")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("emoji2")
+          .setLabel("Emoji 2")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("role2")
+          .setLabel("Role name 2")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("emoji3")
+          .setLabel("Emoji 3")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("role3")
+          .setLabel("Role name 3")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("emoji4")
+          .setLabel("Emoji 4")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("role4")
+          .setLabel("Role name 4")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("emoji5")
+          .setLabel("Emoji 5")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("role5")
+          .setLabel("Role name 5")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+      )
+    );
+
+    return interaction.showModal(modal);
+  }
+}
+
 
     // /embed create
     if (name === "embed") {
@@ -634,6 +789,50 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.reply({ content: "Embed sent.", ephemeral: true });
     }
+
+if (interaction.customId === "rr_create_modal") {
+  const description = interaction.fields.getTextInputValue("description");
+
+  const pairs = [];
+  for (let i = 1; i <= 5; i++) {
+    const emoji = interaction.fields.getTextInputValue(`emoji${i}`);
+    const roleName = interaction.fields.getTextInputValue(`role${i}`);
+
+    if (emoji && roleName) {
+      const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
+      if (role) {
+        pairs.push({ emoji, roleId: role.id });
+      }
+    }
+  }
+
+  if (pairs.length === 0) {
+    return interaction.reply({ content: "No valid emoji/role pairs provided.", ephemeral: true });
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(BURGUNDY)
+    .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
+    .setDescription(description)
+    .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1556038451646828655/image.png")
+    .setFooter({ text: OLGA_FOOTER });
+
+  const row = new ActionRowBuilder();
+
+  pairs.forEach(pair => {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`rr_${pair.roleId}`)
+        .setEmoji(pair.emoji)
+        .setStyle(2) // Secondary
+    );
+  });
+
+  await interaction.channel.send({ embeds: [embed], components: [row] });
+
+  return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
+}
+
 
     if (interaction.customId === "olgasm_announce_modal") {
       const description = interaction.fields.getTextInputValue("description");
