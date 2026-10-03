@@ -8,7 +8,9 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -28,26 +30,15 @@ const OLGA_FOOTER = "𝔗𝔥𝔢 𝔒𝔩𝔤𝔞𝔰 𝔖𝔢𝔞𝔰𝔬𝔫 
 const ANNOUNCE_CHANNEL_ID = "1553495305591328888";
 const ANNOUNCE_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555599574167457875/image.png";
 const LEADERBOARD_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png";
-const LEVEL_UP_CHANNEL_ID = "1517175386021040138";
+const REACTION_ROLES_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1556038451646828655/image.png";
+const COUNTING_CHANNEL_ID = "1515690705664741466";
 
-// XP / LEVELS
-const CHAT_DATA_PATH = "./data/chatLevels.json";
+// DATA PATHS
+const CHAT_DATA_PATH = "./data/chatLevels.json"; // now only messagesWeek + messagesTotal
 const STATS_DATA_PATH = "./data/stats.json";
 
-const LEVELS = [
-  { xp: 0, name: "Rookie socializer" },
-  { xp: 200, name: "Settled socializer" },
-  { xp: 400, name: "Experienced socializer" },
-  { xp: 900, name: "professional socializer" },
-  { xp: 1800, name: "Professional Yapper" },
-  { xp: 3000, name: "Unstoppable yappinga" },
-  { xp: 6000, name: "unreal yapper" },
-  { xp: 11000, name: "the king of the chats" },
-  { xp: 30000, name: "yappinga final boss" }
-];
-
 let chatData = {
-  users: {}, // userId: { xp, messagesTotal, messagesWeek }
+  users: {}, // userId: { messagesTotal, messagesWeek }
   lastWeek: null
 };
 
@@ -55,6 +46,74 @@ let statsData = {
   leaderboardChannel: null,
   leaderboardMessage: null
 };
+
+// COUNTING GAME STATE
+let countingState = {
+  lastNumber: 0,
+  lastUserId: null
+};
+
+// GUESSING GAME STATE
+const GUESS_ITEMS = [
+  {
+    answer: "cat",
+    hints: [
+      "It’s a small furry animal that loves to ignore you.",
+      "It often knocks things off tables for fun."
+    ]
+  },
+  {
+    answer: "pizza",
+    hints: [
+      "It’s round, cheesy, and often delivered in a box.",
+      "People argue about pineapple on it."
+    ]
+  },
+  {
+    answer: "phone",
+    hints: [
+      "You stare at it way too much every day.",
+      "It fits in your hand and connects you to everyone."
+    ]
+  },
+  {
+    answer: "car",
+    hints: [
+      "It has four wheels and takes you places.",
+      "You sit inside it and complain about traffic."
+    ]
+  },
+  {
+    answer: "bed",
+    hints: [
+      "You visit it every night.",
+      "It’s where you pretend you’ll sleep early but don’t."
+    ]
+  }
+];
+
+let guessState = {
+  currentIndex: null,
+  hintIndex: 0,
+  lastHintMessageId: null
+};
+
+// ROAST MODE
+let roastModeOn = false;
+let roastInterval = null;
+
+const ROASTS = [
+  "your body screams help, go lift, bitch.",
+  "you look like a before picture, start working on the after.",
+  "your fat has more commitment than you ever had to the gym.",
+  "the scale is tired of your bullshit, go touch some dumbbells.",
+  "your reflection is begging you to discover cardio.",
+  "your stomach enters the room five seconds before you do.",
+  "you don’t need a mirror, you need a treadmill.",
+  "your hoodie is not oversized, it’s just honest.",
+  "your body is a cry for help, not a fashion statement.",
+  "you’re one snack away from becoming a cautionary tale."
+];
 
 function ensureDataFolder() {
   if (!fs.existsSync("./data")) {
@@ -115,7 +174,6 @@ function getWeekNumber(d) {
 function ensureUser(id) {
   if (!chatData.users[id]) {
     chatData.users[id] = {
-      xp: 0,
       messagesTotal: 0,
       messagesWeek: 0
     };
@@ -123,59 +181,16 @@ function ensureUser(id) {
   return chatData.users[id];
 }
 
-function getLevelIndexFromXp(xp) {
-  let idx = 0;
-  for (let i = 0; i < LEVELS.length; i++) {
-    if (xp >= LEVELS[i].xp) idx = i;
-    else break;
-  }
-  return idx;
-}
-
-function getNextLevelInfo(xp) {
-  const currentIndex = getLevelIndexFromXp(xp);
-  const nextIndex = currentIndex + 1;
-  if (nextIndex >= LEVELS.length) return null;
-  const nextLevel = LEVELS[nextIndex];
-  return {
-    name: nextLevel.name,
-    xpToNext: nextLevel.xp - xp
-  };
-}
-
-async function sendLevelUpEmbed(userId, newLevelIndex, xp) {
-  const channel = await client.channels.fetch(LEVEL_UP_CHANNEL_ID).catch(() => null);
-  if (!channel) return;
-
-  const levelName = LEVELS[newLevelIndex].name;
-  const nextInfo = getNextLevelInfo(xp);
-
-  let desc = `-starts fingering- CONGRATS SLUTTY <@${userId}> ! youve leveled up to **${levelName}** ! `;
-  if (nextInfo) {
-    desc += `Youre **${nextInfo.xpToNext}** XP away from the next level **${nextInfo.name}** , good luck fattie!`;
-  } else {
-    desc += `You reached the highest level, yappinga final boss, you disgusting chatter freak!`;
-  }
-
-  const embed = new EmbedBuilder()
-    .setColor(BURGUNDY)
-    .setDescription(desc)
-    .setFooter({ text: OLGA_FOOTER });
-
-  await channel.send({ embeds: [embed] });
-}
-
 function buildWeeklyLeaderboardEmbed() {
   const users = Object.entries(chatData.users);
   users.sort((a, b) => b[1].messagesWeek - a[1].messagesWeek);
 
-  const top3 = users.slice(0, 3);
   let desc = "";
 
-  if (top3.length === 0) {
+  if (users.length === 0) {
     desc = "No chatters this week yet.";
   } else {
-    top3.forEach(([id, data], index) => {
+    users.forEach(([id, data], index) => {
       desc += `${index + 1}. <@${id}> — **${data.messagesWeek}** msgs this week\n`;
     });
   }
@@ -237,6 +252,71 @@ async function updateLeaderboards() {
   saveStatsData();
 }
 
+// GUESSING GAME HELPERS
+function startGuessingGame(channel) {
+  const index = Math.floor(Math.random() * GUESS_ITEMS.length);
+  guessState.currentIndex = index;
+  guessState.hintIndex = 0;
+  const item = GUESS_ITEMS[index];
+  return channel.send(item.hints[0]).then(msg => {
+    guessState.lastHintMessageId = msg.id;
+  });
+}
+
+function endGuessingGame() {
+  guessState.currentIndex = null;
+  guessState.hintIndex = 0;
+  guessState.lastHintMessageId = null;
+}
+
+function getCurrentGuessItem() {
+  if (guessState.currentIndex === null) return null;
+  return GUESS_ITEMS[guessState.currentIndex];
+}
+
+// ROAST MODE HELPERS
+async function startRoastMode() {
+  if (roastModeOn) return;
+  roastModeOn = true;
+
+  roastInterval = setInterval(async () => {
+    try {
+      // random user from chatData (anyone who has ever sent a message)
+      const userIds = Object.keys(chatData.users);
+      if (userIds.length === 0) return;
+
+      const randomUserId = userIds[Math.floor(Math.random() * userIds.length)];
+      const randomRoast = ROASTS[Math.floor(Math.random() * ROASTS.length)];
+
+      const channelId = statsData.leaderboardChannel;
+      if (!channelId) return;
+
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel) return;
+
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setDescription(randomRoast)
+        .setFooter({ text: OLGA_FOOTER });
+
+      await channel.send({
+        content: `<@${randomUserId}>`,
+        embeds: [embed]
+      });
+    } catch (e) {
+      console.error("Roast mode error:", e);
+    }
+  }, 2 * 60 * 1000);
+}
+
+function stopRoastMode() {
+  roastModeOn = false;
+  if (roastInterval) {
+    clearInterval(roastInterval);
+    roastInterval = null;
+  }
+}
+
 // READY
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -245,7 +325,7 @@ client.once("ready", async () => {
   loadStatsData();
 
   client.user.setStatus("idle");
-  client.user.setActivity("𝕺𝖑𝖌𝖆𝖘𝖒𝟐𝟒' | 𝕾𝖊𝖆𝖘𝖔𝖓 𝟓 📰", {
+  client.user.setActivity(" 🎃👻Olgasm V5: Season 5", {
     type: ActivityType.Playing
   });
 
@@ -258,16 +338,6 @@ client.once("ready", async () => {
           .setName("create")
           .setDescription("Create a custom embed")
       ),
-
-      new SlashCommandBuilder()
-  .setName("rr")
-  .setDescription("Reaction roles system")
-  .addSubcommand(sub =>
-    sub
-      .setName("create")
-      .setDescription("Create a reaction roles embed")
-  ),
-
 
     new SlashCommandBuilder()
       .setName("olgasm")
@@ -326,38 +396,6 @@ client.once("ready", async () => {
       ),
 
     new SlashCommandBuilder()
-      .setName("addxp")
-      .setDescription("Add XP to a user")
-      .addUserOption(opt =>
-        opt
-          .setName("user")
-          .setDescription("User to add XP to")
-          .setRequired(true)
-      )
-      .addIntegerOption(opt =>
-        opt
-          .setName("amount")
-          .setDescription("Amount of XP to add")
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName("removexp")
-      .setDescription("Remove XP from a user")
-      .addUserOption(opt =>
-        opt
-          .setName("user")
-          .setDescription("User to remove XP from")
-          .setRequired(true)
-      )
-      .addIntegerOption(opt =>
-        opt
-          .setName("amount")
-          .setDescription("Amount of XP to remove")
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
       .setName("statsch")
       .setDescription("Set stats/leaderboard channel")
       .addSubcommand(sub =>
@@ -370,6 +408,43 @@ client.once("ready", async () => {
               .setDescription("Channel to use for stats leaderboards")
               .setRequired(true)
           )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("rr")
+      .setDescription("Reaction roles system")
+      .addSubcommand(sub =>
+        sub
+          .setName("create")
+          .setDescription("Create a reaction roles embed")
+      ),
+
+    new SlashCommandBuilder()
+      .setName("guessit")
+      .setDescription("Guessing game")
+      .addSubcommand(sub =>
+        sub
+          .setName("start")
+          .setDescription("Start the guessing game")
+      )
+      .addSubcommand(sub =>
+        sub
+          .setName("end")
+          .setDescription("End the guessing game")
+      ),
+
+    new SlashCommandBuilder()
+      .setName("roastmode")
+      .setDescription("Toggle roast mode")
+      .addStringOption(opt =>
+        opt
+          .setName("mode")
+          .setDescription("on or off")
+          .setRequired(true)
+          .addChoices(
+            { name: "on", value: "on" },
+            { name: "off", value: "off" }
+          )
       )
   ].map(c => c.toJSON());
 
@@ -379,10 +454,11 @@ client.once("ready", async () => {
   setInterval(updateLeaderboards, 5 * 60 * 1000);
 });
 
-// MESSAGE HANDLER (XP + LEVELS)
+// MESSAGE HANDLER (CHAT COUNTS + COUNTING GAME + GUESSING GAME)
 client.on("messageCreate", async (msg) => {
   if (!msg.guild || msg.author.bot) return;
 
+  // WEEKLY RESET
   const now = new Date();
   const currentWeek = getWeekNumber(now);
   if (chatData.lastWeek === null) {
@@ -392,178 +468,91 @@ client.on("messageCreate", async (msg) => {
       chatData.users[id].messagesWeek = 0;
     }
     chatData.lastWeek = currentWeek;
+    saveChatData();
   }
 
+  // COUNT TOTAL + WEEKLY MESSAGES (for all channels)
   const userId = msg.author.id;
   const userData = ensureUser(userId);
-
-  const oldXp = userData.xp;
-  const oldLevelIndex = getLevelIndexFromXp(oldXp);
-
   userData.messagesTotal += 1;
   userData.messagesWeek += 1;
-
-  const hasAttachment = msg.attachments.size > 0;
-  const xpGain = hasAttachment ? 4 : 2;
-  userData.xp += xpGain;
-
   saveChatData();
 
-  const newLevelIndex = getLevelIndexFromXp(userData.xp);
-  if (newLevelIndex > oldLevelIndex) {
-    await sendLevelUpEmbed(userId, newLevelIndex, userData.xp);
+  // COUNTING GAME
+  if (msg.channel.id === COUNTING_CHANNEL_ID) {
+    const num = parseInt(msg.content.trim(), 10);
+    if (isNaN(num)) return;
+
+    // one person can't count alone
+    if (countingState.lastUserId === msg.author.id) {
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setDescription(`stupid <@${msg.author.id}> messed up at **${num}** , what a dumb bitch!`)
+        .setFooter({ text: OLGA_FOOTER });
+
+      await msg.channel.send({ embeds: [embed] });
+      countingState.lastNumber = 0;
+      countingState.lastUserId = null;
+      return;
+    }
+
+    // must be exactly +1
+    if (countingState.lastNumber !== 0 && num !== countingState.lastNumber + 1) {
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setDescription(`stupid <@${msg.author.id}> messed up at **${num}** , what a dumb bitch!`)
+        .setFooter({ text: OLGA_FOOTER });
+
+      await msg.channel.send({ embeds: [embed] });
+      countingState.lastNumber = 0;
+      countingState.lastUserId = null;
+      return;
+    }
+
+    countingState.lastNumber = num;
+    countingState.lastUserId = msg.author.id;
+  }
+
+  // GUESSING GAME: replies to bot's hint messages
+  if (guessState.currentIndex !== null && msg.reference && msg.reference.messageId) {
+    if (msg.reference.messageId === guessState.lastHintMessageId) {
+      const item = getCurrentGuessItem();
+      if (!item) return;
+
+      const guess = msg.content.trim().toLowerCase();
+      const answer = item.answer.toLowerCase();
+
+      if (guess === answer) {
+        const embed = new EmbedBuilder()
+          .setColor(BURGUNDY)
+          .setDescription(`fat bitch <@${msg.author.id}> guessed the thing! the thing was **${item.answer}**`)
+          .setFooter({ text: OLGA_FOOTER });
+
+        await msg.channel.send({ embeds: [embed] });
+
+        await startGuessingGame(msg.channel);
+      } else {
+        const item2 = getCurrentGuessItem();
+        if (!item2) return;
+
+        guessState.hintIndex++;
+        if (guessState.hintIndex >= item2.hints.length) {
+          guessState.hintIndex = item2.hints.length - 1;
+        }
+
+        const hint = item2.hints[guessState.hintIndex];
+        const newMsg = await msg.channel.send(hint);
+        guessState.lastHintMessageId = newMsg.id;
+      }
+    }
   }
 });
 
 // INTERACTIONS
 client.on("interactionCreate", async (interaction) => {
+  // SLASH COMMANDS
   if (interaction.isChatInputCommand()) {
     const name = interaction.commandName;
-
-// BUTTON HANDLER (Reaction Roles)
-if (interaction.isButton()) {
-  if (interaction.customId.startsWith("rr_")) {
-  const roleId = interaction.customId.replace("rr_", "");
-  const role = interaction.guild.roles.cache.get(roleId);
-
-  if (!role) {
-    return interaction.reply({ content: "Role not found.", ephemeral: true });
-  }
-
-  const member = interaction.member;
-
-  if (member.roles.cache.has(roleId)) {
-    await member.roles.remove(roleId);
-    return interaction.reply({ content: `Removed role **${role.name}**`, ephemeral: true });
-  } else {
-    await member.roles.add(roleId);
-    return interaction.reply({ content: `Added role **${role.name}**`, ephemeral: true });
-  }
-}
-
-  if (interaction.customId.startsWith("rr_")) {
-    const roleId = interaction.customId.replace("rr_", "");
-    const role = interaction.guild.roles.cache.get(roleId);
-
-    if (!role) {
-      return interaction.reply({ content: "Role not found.", ephemeral: true });
-    }
-
-    const member = interaction.member;
-
-    // Toggle role
-    if (member.roles.cache.has(roleId)) {
-      await member.roles.remove(roleId);
-      return interaction.reply({
-        content: `Removed role **${role.name}**`,
-        ephemeral: true
-      });
-    } else {
-      await member.roles.add(roleId);
-      return interaction.reply({
-        content: `Added role **${role.name}**`,
-        ephemeral: true
-      });
-    }
-  }
-}
-
-
-// /rr create
-if (name === "rr") {
-  if (interaction.options.getSubcommand() === "create") {
-    if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
-    }
-
-    const modal = new ModalBuilder()
-      .setCustomId("rr_create_modal")
-      .setTitle("Create Reaction Roles");
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("description")
-          .setLabel("Embed description")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("emoji1")
-          .setLabel("Emoji 1")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role1")
-          .setLabel("Role name 1")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("emoji2")
-          .setLabel("Emoji 2")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role2")
-          .setLabel("Role name 2")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("emoji3")
-          .setLabel("Emoji 3")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role3")
-          .setLabel("Role name 3")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("emoji4")
-          .setLabel("Emoji 4")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role4")
-          .setLabel("Role name 4")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("emoji5")
-          .setLabel("Emoji 5")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role5")
-          .setLabel("Role name 5")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-      )
-    );
-
-    return interaction.showModal(modal);
-  }
-}
-
 
     // /embed create
     if (name === "embed") {
@@ -670,18 +659,7 @@ if (name === "rr") {
           desc = "No chatters yet.";
         } else {
           users.forEach(([id, data], index) => {
-            const levelIndex = getLevelIndexFromXp(data.xp);
-            const levelName = LEVELS[levelIndex].name;
-            const nextInfo = getNextLevelInfo(data.xp);
-            const xpToNext = nextInfo ? nextInfo.xpToNext : 0;
-
-            desc += `${index + 1}. <@${id}> — **${data.messagesTotal}** msgs, **${data.xp}** XP, level: **${levelName}**`;
-            if (nextInfo) {
-              desc += `, **${xpToNext}** XP until **${nextInfo.name}**`;
-            } else {
-              desc += `, at max level`;
-            }
-            desc += `\n`;
+            desc += `${index + 1}. <@${id}> — **${data.messagesTotal}** msgs total, **${data.messagesWeek}** msgs this week\n`;
           });
         }
 
@@ -694,56 +672,6 @@ if (name === "rr") {
 
         return interaction.reply({ embeds: [embed] });
       }
-    }
-
-    // /addxp
-    if (name === "addxp") {
-      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
-      }
-
-      const user = interaction.options.getUser("user", true);
-      const amount = interaction.options.getInteger("amount", true);
-
-      const data = ensureUser(user.id);
-      const oldLevelIndex = getLevelIndexFromXp(data.xp);
-
-      data.xp += amount;
-      if (data.xp < 0) data.xp = 0;
-
-      saveChatData();
-
-      const newLevelIndex = getLevelIndexFromXp(data.xp);
-      if (newLevelIndex > oldLevelIndex) {
-        await sendLevelUpEmbed(user.id, newLevelIndex, data.xp);
-      }
-
-      return interaction.reply({
-        content: `Added **${amount}** XP to <@${user.id}>. They now have **${data.xp}** XP.`,
-        ephemeral: true
-      });
-    }
-
-    // /removexp
-    if (name === "removexp") {
-      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
-      }
-
-      const user = interaction.options.getUser("user", true);
-      const amount = interaction.options.getInteger("amount", true);
-
-      const data = ensureUser(user.id);
-
-      data.xp -= amount;
-      if (data.xp < 0) data.xp = 0;
-
-      saveChatData();
-
-      return interaction.reply({
-        content: `Removed **${amount}** XP from <@${user.id}>. They now have **${data.xp}** XP.`,
-        ephemeral: true
-      });
     }
 
     // /statsch set
@@ -762,6 +690,129 @@ if (name === "rr") {
           content: `Stats/leaderboard channel set to ${channel}. Leaderboard will update every 5 minutes.`,
           ephemeral: true
         });
+      }
+    }
+
+    // /rr create
+    if (name === "rr") {
+      if (interaction.options.getSubcommand() === "create") {
+        if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId("rr_create_modal")
+          .setTitle("Create Reaction Roles");
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("description")
+              .setLabel("Embed description")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("emoji1")
+              .setLabel("Emoji 1")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("role1")
+              .setLabel("Role name 1")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("emoji2")
+              .setLabel("Emoji 2")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("role2")
+              .setLabel("Role name 2")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("emoji3")
+              .setLabel("Emoji 3")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("role3")
+              .setLabel("Role name 3")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("emoji4")
+              .setLabel("Emoji 4")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("role4")
+              .setLabel("Role name 4")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("emoji5")
+              .setLabel("Emoji 5")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("role5")
+              .setLabel("Role name 5")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          )
+        );
+
+        return interaction.showModal(modal);
+      }
+    }
+
+    // /guessit start/end
+    if (name === "guessit") {
+      if (interaction.options.getSubcommand() === "start") {
+        await startGuessingGame(interaction.channel);
+        return interaction.reply({ content: "Guessing game started. Reply to my messages to guess.", ephemeral: true });
+      }
+      if (interaction.options.getSubcommand() === "end") {
+        endGuessingGame();
+        return interaction.reply({ content: "Guessing game ended.", ephemeral: true });
+      }
+    }
+
+    // /roastmode on/off
+    if (name === "roastmode") {
+      const mode = interaction.options.getString("mode");
+      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
+      }
+
+      if (mode === "on") {
+        await startRoastMode();
+        return interaction.reply({ content: "Roast mode turned ON. Enjoy the pain.", ephemeral: true });
+      } else {
+        stopRoastMode();
+        return interaction.reply({ content: "Roast mode turned OFF. You’re safe… for now.", ephemeral: true });
       }
     }
   }
@@ -790,50 +841,6 @@ if (name === "rr") {
       return interaction.reply({ content: "Embed sent.", ephemeral: true });
     }
 
-if (interaction.customId === "rr_create_modal") {
-  const description = interaction.fields.getTextInputValue("description");
-
-  const pairs = [];
-  for (let i = 1; i <= 5; i++) {
-    const emoji = interaction.fields.getTextInputValue(`emoji${i}`);
-    const roleName = interaction.fields.getTextInputValue(`role${i}`);
-
-    if (emoji && roleName) {
-      const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
-      if (role) {
-        pairs.push({ emoji, roleId: role.id });
-      }
-    }
-  }
-
-  if (pairs.length === 0) {
-    return interaction.reply({ content: "No valid emoji/role pairs provided.", ephemeral: true });
-  }
-
-  const embed = new EmbedBuilder()
-    .setColor(BURGUNDY)
-    .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
-    .setDescription(description)
-    .setImage("https://cdn.discordapp.com/attachments/1212370536416677949/1556038451646828655/image.png")
-    .setFooter({ text: OLGA_FOOTER });
-
-  const row = new ActionRowBuilder();
-
-  pairs.forEach(pair => {
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`rr_${pair.roleId}`)
-        .setEmoji(pair.emoji)
-        .setStyle(2) // Secondary
-    );
-  });
-
-  await interaction.channel.send({ embeds: [embed], components: [row] });
-
-  return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
-}
-
-
     if (interaction.customId === "olgasm_announce_modal") {
       const description = interaction.fields.getTextInputValue("description");
 
@@ -853,6 +860,77 @@ if (interaction.customId === "rr_create_modal") {
         content: `Announcement sent to <#${ANNOUNCE_CHANNEL_ID}>`,
         ephemeral: true
       });
+    }
+
+    if (interaction.customId === "rr_create_modal") {
+      const description = interaction.fields.getTextInputValue("description");
+
+      const pairs = [];
+      for (let i = 1; i <= 5; i++) {
+        const emoji = interaction.fields.getTextInputValue(`emoji${i}`);
+        const roleName = interaction.fields.getTextInputValue(`role${i}`);
+
+        if (emoji && roleName) {
+          const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
+          if (role) {
+            pairs.push({ emoji, roleId: role.id });
+          }
+        }
+      }
+
+      if (pairs.length === 0) {
+        return interaction.reply({ content: "No valid emoji/role pairs provided.", ephemeral: true });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
+        .setDescription(description)
+        .setImage(REACTION_ROLES_BANNER)
+        .setFooter({ text: OLGA_FOOTER });
+
+      const row = new ActionRowBuilder();
+
+      pairs.forEach(pair => {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`rr_${pair.roleId}`)
+            .setEmoji(pair.emoji)
+            .setStyle(ButtonStyle.Secondary)
+        );
+      });
+
+      await interaction.channel.send({ embeds: [embed], components: [row] });
+
+      return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
+    }
+  }
+
+  // BUTTONS (Reaction Roles)
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith("rr_")) {
+      const roleId = interaction.customId.replace("rr_", "");
+      const role = interaction.guild.roles.cache.get(roleId);
+
+      if (!role) {
+        return interaction.reply({ content: "Role not found.", ephemeral: true });
+      }
+
+      const member = interaction.member;
+
+      if (member.roles.cache.has(roleId)) {
+        await member.roles.remove(roleId);
+        return interaction.reply({
+          content: `Removed role **${role.name}**`,
+          ephemeral: true
+        });
+      } else {
+        await member.roles.add(roleId);
+        return interaction.reply({
+          content: `Added role **${role.name}**`,
+          ephemeral: true
+        });
+      }
     }
   }
 });
