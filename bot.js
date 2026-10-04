@@ -10,7 +10,8 @@ const {
   ActionRowBuilder,
   PermissionFlagsBits,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  RoleSelectMenuBuilder
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -34,69 +35,25 @@ const REACTION_ROLES_BANNER = "https://cdn.discordapp.com/attachments/1212370536
 const COUNTING_CHANNEL_ID = "1515690705664741466";
 
 // DATA PATHS
-const CHAT_DATA_PATH = "./data/chatLevels.json"; // messagesWeek + messagesTotal
+const CHAT_DATA_PATH = "./data/chatLevels.json";
 const STATS_DATA_PATH = "./data/stats.json";
 
-let chatData = {
-  users: {}, // userId: { messagesTotal, messagesWeek }
-  lastWeek: null
-};
-
-let statsData = {
-  leaderboardChannel: null,
-  leaderboardMessage: null
-};
+let chatData = { users: {}, lastWeek: null };
+let statsData = { leaderboardChannel: null, leaderboardMessage: null };
 
 // COUNTING GAME STATE
-let countingState = {
-  lastNumber: 0,
-  lastUserId: null
-};
+let countingState = { lastNumber: 0, lastUserId: null };
 
-// GUESSING GAME STATE
+// GUESSING GAME
 const GUESS_ITEMS = [
-  {
-    answer: "cat",
-    hints: [
-      "It’s a small furry animal that loves to ignore you.",
-      "It often knocks things off tables for fun."
-    ]
-  },
-  {
-    answer: "pizza",
-    hints: [
-      "It’s round, cheesy, and often delivered in a box.",
-      "People argue about pineapple on it."
-    ]
-  },
-  {
-    answer: "phone",
-    hints: [
-      "You stare at it way too much every day.",
-      "It fits in your hand and connects you to everyone."
-    ]
-  },
-  {
-    answer: "car",
-    hints: [
-      "It has four wheels and takes you places.",
-      "You sit inside it and complain about traffic."
-    ]
-  },
-  {
-    answer: "bed",
-    hints: [
-      "You visit it every night.",
-      "It’s where you pretend you’ll sleep early but don’t."
-    ]
-  }
+  { answer: "cat", hints: ["It’s a small furry animal that loves to ignore you.", "It often knocks things off tables for fun."] },
+  { answer: "pizza", hints: ["It’s round, cheesy, and often delivered in a box.", "People argue about pineapple on it."] },
+  { answer: "phone", hints: ["You stare at it way too much every day.", "It fits in your hand and connects you to everyone."] },
+  { answer: "car", hints: ["It has four wheels and takes you places.", "You sit inside it and complain about traffic."] },
+  { answer: "bed", hints: ["You visit it every night.", "It’s where you pretend you’ll sleep early but don’t."] }
 ];
 
-let guessState = {
-  currentIndex: null,
-  hintIndex: 0,
-  lastHintMessageId: null
-};
+let guessState = { currentIndex: null, hintIndex: 0, lastHintMessageId: null };
 
 // ROAST MODE
 let roastModeOn = false;
@@ -116,18 +73,18 @@ const ROASTS = [
   "you’re one snack away from becoming a cautionary tale."
 ];
 
+// TEMP STORAGE FOR RR SETUP
+client.tempRR = {}; // key: userId -> { roles: [roleId], channelId, description }
+
 function ensureDataFolder() {
-  if (!fs.existsSync("./data")) {
-    fs.mkdirSync("./data");
-  }
+  if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 }
 
 function loadChatData() {
   ensureDataFolder();
   try {
     if (fs.existsSync(CHAT_DATA_PATH)) {
-      const raw = fs.readFileSync(CHAT_DATA_PATH, "utf8");
-      chatData = JSON.parse(raw);
+      chatData = JSON.parse(fs.readFileSync(CHAT_DATA_PATH, "utf8"));
     }
   } catch (e) {
     console.error("Failed to load chat data:", e);
@@ -147,8 +104,7 @@ function loadStatsData() {
   ensureDataFolder();
   try {
     if (fs.existsSync(STATS_DATA_PATH)) {
-      const raw = fs.readFileSync(STATS_DATA_PATH, "utf8");
-      statsData = JSON.parse(raw);
+      statsData = JSON.parse(fs.readFileSync(STATS_DATA_PATH, "utf8"));
     }
   } catch (e) {
     console.error("Failed to load stats data:", e);
@@ -173,67 +129,41 @@ function getWeekNumber(d) {
 }
 
 function ensureUser(id) {
-  if (!chatData.users[id]) {
-    chatData.users[id] = {
-      messagesTotal: 0,
-      messagesWeek: 0
-    };
-  }
+  if (!chatData.users[id]) chatData.users[id] = { messagesTotal: 0, messagesWeek: 0 };
   return chatData.users[id];
 }
 
 function buildWeeklyLeaderboardEmbed() {
-  const users = Object.entries(chatData.users);
-  users.sort((a, b) => b[1].messagesWeek - a[1].messagesWeek);
+  const users = Object.entries(chatData.users).sort((a, b) => b[1].messagesWeek - a[1].messagesWeek);
+  let desc = users.length === 0 ? "No chatters this week yet." : users.map(
+    ([id, data], i) => `${i + 1}. <@${id}> — **${data.messagesWeek}** msgs this week`
+  ).join("\n");
 
-  let desc = "";
-
-  if (users.length === 0) {
-    desc = "No chatters this week yet.";
-  } else {
-    users.forEach(([id, data], index) => {
-      desc += `${index + 1}. <@${id}> — **${data.messagesWeek}** msgs this week\n`;
-    });
-  }
-
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(BURGUNDY)
     .setTitle("💭 Top chatters this week")
     .setDescription(desc)
     .setImage(LEADERBOARD_BANNER)
     .setFooter({ text: OLGA_FOOTER });
-
-  return embed;
 }
 
 function buildOverallLeaderboardEmbed() {
-  const users = Object.entries(chatData.users);
-  users.sort((a, b) => b[1].messagesTotal - a[1].messagesTotal);
+  const users = Object.entries(chatData.users).sort((a, b) => b[1].messagesTotal - a[1].messagesTotal);
+  let desc = users.length === 0 ? "No chatters yet." : users.map(
+    ([id, data], i) => `${i + 1}. <@${id}> — **${data.messagesTotal}** msgs total`
+  ).join("\n");
 
-  let desc = "";
-
-  if (users.length === 0) {
-    desc = "No chatters yet.";
-  } else {
-    users.forEach(([id, data], index) => {
-      desc += `${index + 1}. <@${id}> — **${data.messagesTotal}** msgs total\n`;
-    });
-  }
-
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(BURGUNDY)
     .setTitle("💭 Top chatters in overall")
     .setDescription(desc)
     .setImage(LEADERBOARD_BANNER)
     .setFooter({ text: OLGA_FOOTER });
-
-  return embed;
 }
 
 async function updateLeaderboards() {
   const channelId = statsData.leaderboardChannel;
   if (!channelId) return;
-
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return;
 
@@ -275,7 +205,7 @@ function getCurrentGuessItem() {
   return GUESS_ITEMS[guessState.currentIndex];
 }
 
-// ROAST MODE HELPERS
+// ROAST MODE
 async function startRoastMode() {
   if (roastModeOn || !roastChannelId) return;
   roastModeOn = true;
@@ -287,7 +217,6 @@ async function startRoastMode() {
 
       const randomUserId = userIds[Math.floor(Math.random() * userIds.length)];
       const randomRoast = ROASTS[Math.floor(Math.random() * ROASTS.length)];
-
       const channel = await client.channels.fetch(roastChannelId).catch(() => null);
       if (!channel) return;
 
@@ -296,10 +225,7 @@ async function startRoastMode() {
         .setDescription(randomRoast)
         .setFooter({ text: OLGA_FOOTER });
 
-      await channel.send({
-        content: `<@${randomUserId}>`,
-        embeds: [embed]
-      });
+      await channel.send({ content: `<@${randomUserId}>`, embeds: [embed] });
     } catch (e) {
       console.error("Roast mode error:", e);
     }
@@ -322,136 +248,87 @@ client.once("ready", async () => {
   loadStatsData();
 
   client.user.setStatus("idle");
-  client.user.setActivity(" 🎃👻Olgasm V5: Season 5", {
-    type: ActivityType.Playing
-  });
+  client.user.setActivity(" 🎃👻Olgasm V5: Season 5", { type: ActivityType.Playing });
 
   const commands = [
     new SlashCommandBuilder()
       .setName("embed")
       .setDescription("Embed tools")
-      .addSubcommand(sub =>
-        sub
-          .setName("create")
-          .setDescription("Create a custom embed")
-      ),
+      .addSubcommand(sub => sub.setName("create").setDescription("Create a custom embed")),
 
     new SlashCommandBuilder()
       .setName("olgasm")
       .setDescription("Olga utilities")
-      .addSubcommand(sub =>
-        sub
-          .setName("announce")
-          .setDescription("Create an Olga announcement embed")
-      ),
+      .addSubcommand(sub => sub.setName("announce").setDescription("Create an Olga announcement embed")),
 
     new SlashCommandBuilder()
       .setName("setstatus")
       .setDescription("Set bot status")
       .addStringOption(opt =>
-        opt
-          .setName("status")
-          .setDescription("online | idle | dnd | invisible")
-          .setRequired(true)
-          .addChoices(
-            { name: "online", value: "online" },
-            { name: "idle", value: "idle" },
-            { name: "dnd", value: "dnd" },
-            { name: "invisible", value: "invisible" }
-          )
+        opt.setName("status").setDescription("online | idle | dnd | invisible").setRequired(true).addChoices(
+          { name: "online", value: "online" },
+          { name: "idle", value: "idle" },
+          { name: "dnd", value: "dnd" },
+          { name: "invisible", value: "invisible" }
+        )
       ),
 
     new SlashCommandBuilder()
       .setName("setactivity")
       .setDescription("Set bot activity")
       .addStringOption(opt =>
-        opt
-          .setName("type")
-          .setDescription("playing | watching | listening | competing")
-          .setRequired(true)
-          .addChoices(
-            { name: "playing", value: "playing" },
-            { name: "watching", value: "watching" },
-            { name: "listening", value: "listening" },
-            { name: "competing", value: "competing" }
-          )
+        opt.setName("type").setDescription("playing | watching | listening | competing").setRequired(true).addChoices(
+          { name: "playing", value: "playing" },
+          { name: "watching", value: "watching" },
+          { name: "listening", value: "listening" },
+          { name: "competing", value: "competing" }
+        )
       )
       .addStringOption(opt =>
-        opt
-          .setName("text")
-          .setDescription("Activity text")
-          .setRequired(true)
+        opt.setName("text").setDescription("Activity text").setRequired(true)
       ),
 
     new SlashCommandBuilder()
       .setName("lb")
       .setDescription("Leaderboards")
-      .addSubcommand(sub =>
-        sub
-          .setName("chat")
-          .setDescription("Chatting leaderboard")
-      ),
+      .addSubcommand(sub => sub.setName("chat").setDescription("Chatting leaderboard")),
 
     new SlashCommandBuilder()
       .setName("statsch")
       .setDescription("Set stats/leaderboard channel")
       .addSubcommand(sub =>
-        sub
-          .setName("set")
-          .setDescription("Set the stats channel")
-          .addChannelOption(opt =>
-            opt
-              .setName("channel")
-              .setDescription("Channel to use for stats leaderboards")
-              .setRequired(true)
-          )
+        sub.setName("set").setDescription("Set the stats channel").addChannelOption(opt =>
+          opt.setName("channel").setDescription("Channel to use for stats leaderboards").setRequired(true)
+        )
       ),
 
     new SlashCommandBuilder()
       .setName("rr")
       .setDescription("Reaction roles system")
       .addSubcommand(sub =>
-        sub
-          .setName("create")
-          .setDescription("Create a reaction roles embed")
+        sub.setName("create").setDescription("Create a reaction roles embed")
       ),
 
     new SlashCommandBuilder()
       .setName("guessit")
       .setDescription("Guessing game")
-      .addSubcommand(sub =>
-        sub
-          .setName("start")
-          .setDescription("Start the guessing game")
-      )
-      .addSubcommand(sub =>
-        sub
-          .setName("end")
-          .setDescription("End the guessing game")
-      ),
+      .addSubcommand(sub => sub.setName("start").setDescription("Start the guessing game"))
+      .addSubcommand(sub => sub.setName("end").setDescription("End the guessing game")),
 
     new SlashCommandBuilder()
       .setName("roastmode")
       .setDescription("Toggle roast mode")
       .addStringOption(opt =>
-        opt
-          .setName("mode")
-          .setDescription("on or off")
-          .setRequired(true)
-          .addChoices(
-            { name: "on", value: "on" },
-            { name: "off", value: "off" }
-          )
+        opt.setName("mode").setDescription("on or off").setRequired(true).addChoices(
+          { name: "on", value: "on" },
+          { name: "off", value: "off" }
+        )
       ),
 
     new SlashCommandBuilder()
       .setName("poll")
       .setDescription("Create polls")
-      .addSubcommand(sub =>
-        sub
-          .setName("create")
-          .setDescription("Create a poll")
-      )
+      .addSubcommand(sub => sub.setName("create").setDescription("Create a poll"))
   ].map(c => c.toJSON());
 
   await client.application.commands.set(commands);
@@ -460,7 +337,7 @@ client.once("ready", async () => {
   setInterval(updateLeaderboards, 5 * 60 * 1000);
 });
 
-// MESSAGE HANDLER (CHAT COUNTS + COUNTING GAME + GUESSING GAME)
+// MESSAGE HANDLER
 client.on("messageCreate", async (msg) => {
   if (!msg.guild || msg.author.bot) return;
 
@@ -470,9 +347,7 @@ client.on("messageCreate", async (msg) => {
   if (chatData.lastWeek === null) {
     chatData.lastWeek = currentWeek;
   } else if (chatData.lastWeek !== currentWeek) {
-    for (const id in chatData.users) {
-      chatData.users[id].messagesWeek = 0;
-    }
+    for (const id in chatData.users) chatData.users[id].messagesWeek = 0;
     chatData.lastWeek = currentWeek;
     saveChatData();
   }
@@ -484,7 +359,7 @@ client.on("messageCreate", async (msg) => {
   userData.messagesWeek += 1;
   saveChatData();
 
-  // COUNTING GAME (FIXED)
+  // COUNTING GAME
   if (msg.channel.id === COUNTING_CHANNEL_ID) {
     const num = parseInt(msg.content.trim(), 10);
     if (isNaN(num)) return;
@@ -492,55 +367,42 @@ client.on("messageCreate", async (msg) => {
     const correctEmoji = "1556263477969166436";
     const wrongEmoji = "1556263655392280576";
 
-    // If same user tries twice
     if (countingState.lastUserId === msg.author.id) {
       await msg.react(wrongEmoji);
-
       const ruinedAt = countingState.lastNumber === 0 ? "0" : countingState.lastNumber;
-
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
         .setDescription(`stupid <@${msg.author.id}> messed up at **${ruinedAt}** , what a dumb bitch!`)
         .setFooter({ text: OLGA_FOOTER });
-
       await msg.channel.send({ embeds: [embed] });
-
       countingState.lastNumber = 0;
       countingState.lastUserId = null;
       return;
     }
 
-    // If number is wrong
     if (countingState.lastNumber !== 0 && num !== countingState.lastNumber + 1) {
       await msg.react(wrongEmoji);
-
       const ruinedAt = countingState.lastNumber;
-
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
         .setDescription(`stupid <@${msg.author.id}> messed up at **${ruinedAt}** , what a dumb bitch!`)
         .setFooter({ text: OLGA_FOOTER });
-
       await msg.channel.send({ embeds: [embed] });
-
       countingState.lastNumber = 0;
       countingState.lastUserId = null;
       return;
     }
 
-    // Correct number
     await msg.react(correctEmoji);
-
     countingState.lastNumber = num;
     countingState.lastUserId = msg.author.id;
   }
 
-  // GUESSING GAME: replies to bot's hint messages
+  // GUESSING GAME replies
   if (guessState.currentIndex !== null && msg.reference && msg.reference.messageId) {
     if (msg.reference.messageId === guessState.lastHintMessageId) {
       const item = getCurrentGuessItem();
       if (!item) return;
-
       const guess = msg.content.trim().toLowerCase();
       const answer = item.answer.toLowerCase();
 
@@ -549,19 +411,13 @@ client.on("messageCreate", async (msg) => {
           .setColor(BURGUNDY)
           .setDescription(`fat bitch <@${msg.author.id}> guessed the thing! the thing was **${item.answer}**`)
           .setFooter({ text: OLGA_FOOTER });
-
         await msg.channel.send({ embeds: [embed] });
-
         await startGuessingGame(msg.channel);
       } else {
         const item2 = getCurrentGuessItem();
         if (!item2) return;
-
         guessState.hintIndex++;
-        if (guessState.hintIndex >= item2.hints.length) {
-          guessState.hintIndex = item2.hints.length - 1;
-        }
-
+        if (guessState.hintIndex >= item2.hints.length) guessState.hintIndex = item2.hints.length - 1;
         const hint = item2.hints[guessState.hintIndex];
         const newMsg = await msg.channel.send(hint);
         guessState.lastHintMessageId = newMsg.id;
@@ -577,73 +433,45 @@ client.on("interactionCreate", async (interaction) => {
     const name = interaction.commandName;
 
     // /embed create
-    if (name === "embed") {
-      if (interaction.options.getSubcommand() === "create") {
-        const modal = new ModalBuilder()
-          .setCustomId("embed_create_modal")
-          .setTitle("Create Custom Embed");
+    if (name === "embed" && interaction.options.getSubcommand() === "create") {
+      const modal = new ModalBuilder()
+        .setCustomId("embed_create_modal")
+        .setTitle("Create Custom Embed");
 
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("title")
-              .setLabel("Title (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("description")
-              .setLabel("Description (required)")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("text")
-              .setLabel("Extra text (optional)")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("thumbnail")
-              .setLabel("Thumbnail URL (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("image")
-              .setLabel("Image URL (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          )
-        );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("title").setLabel("Title (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("description").setLabel("Description (required)").setStyle(TextInputStyle.Paragraph).setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("text").setLabel("Extra text (optional)").setStyle(TextInputStyle.Paragraph).setRequired(false)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("thumbnail").setLabel("Thumbnail URL (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("image").setLabel("Image URL (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        )
+      );
 
-        return interaction.showModal(modal);
-      }
+      return interaction.showModal(modal);
     }
 
     // /olgasm announce
-    if (name === "olgasm") {
-      if (interaction.options.getSubcommand() === "announce") {
-        const modal = new ModalBuilder()
-          .setCustomId("olgasm_announce_modal")
-          .setTitle("Olga Announcement");
+    if (name === "olgasm" && interaction.options.getSubcommand() === "announce") {
+      const modal = new ModalBuilder()
+        .setCustomId("olgasm_announce_modal")
+        .setTitle("Olga Announcement");
 
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("description")
-              .setLabel("Announcement description")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(true)
-          )
-        );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("description").setLabel("Announcement description").setStyle(TextInputStyle.Paragraph).setRequired(true)
+        )
+      );
 
-        return interaction.showModal(modal);
-      }
+      return interaction.showModal(modal);
     }
 
     // /setstatus
@@ -657,194 +485,72 @@ client.on("interactionCreate", async (interaction) => {
     if (name === "setactivity") {
       const type = interaction.options.getString("type");
       const text = interaction.options.getString("text");
-
       const types = {
         playing: ActivityType.Playing,
         watching: ActivityType.Watching,
         listening: ActivityType.Listening,
         competing: ActivityType.Competing
       };
-
       client.user.setActivity(text, { type: types[type] });
       return interaction.reply({ content: `Activity set to ${type} ${text}`, ephemeral: true });
     }
 
     // /lb chat
-    if (name === "lb") {
-      if (interaction.options.getSubcommand() === "chat") {
-        const users = Object.entries(chatData.users);
-        users.sort((a, b) => b[1].messagesTotal - a[1].messagesTotal);
+    if (name === "lb" && interaction.options.getSubcommand() === "chat") {
+      const users = Object.entries(chatData.users).sort((a, b) => b[1].messagesTotal - a[1].messagesTotal);
+      let desc = users.length === 0 ? "No chatters yet." : users.map(
+        ([id, data], i) => `${i + 1}. <@${id}> — **${data.messagesTotal}** msgs total, **${data.messagesWeek}** msgs this week`
+      ).join("\n");
 
-        let desc = "";
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setTitle("💭 Chatting leaderboard")
+        .setDescription(desc)
+        .setImage(LEADERBOARD_BANNER)
+        .setFooter({ text: OLGA_FOOTER });
 
-        if (users.length === 0) {
-          desc = "No chatters yet.";
-        } else {
-          users.forEach(([id, data], index) => {
-            desc += `${index + 1}. <@${id}> — **${data.messagesTotal}** msgs total, **${data.messagesWeek}** msgs this week\n`;
-          });
-        }
-
-        const embed = new EmbedBuilder()
-          .setColor(BURGUNDY)
-          .setTitle("💭 Chatting leaderboard")
-          .setDescription(desc)
-          .setImage(LEADERBOARD_BANNER)
-          .setFooter({ text: OLGA_FOOTER });
-
-        return interaction.reply({ embeds: [embed] });
-      }
+      return interaction.reply({ embeds: [embed] });
     }
 
     // /statsch set
-    if (name === "statsch") {
-      if (interaction.options.getSubcommand() === "set") {
-        if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
-        }
-
-        const channel = interaction.options.getChannel("channel", true);
-        statsData.leaderboardChannel = channel.id;
-        statsData.leaderboardMessage = null;
-        saveStatsData();
-
-        return interaction.reply({
-          content: `Stats/leaderboard channel set to ${channel}. Leaderboard will update every 5 minutes.`,
-          ephemeral: true
-        });
+    if (name === "statsch" && interaction.options.getSubcommand() === "set") {
+      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
       }
-    }
-
-    // /rr create (supports 9 roles with dropdowns)
-if (name === "rr") {
-  if (interaction.options.getSubcommand() === "create") {
-    if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
-    }
-
-    // Step 1: Ask for description via modal
-    const modal = new ModalBuilder()
-      .setCustomId("rr_description_modal")
-      .setTitle("Reaction Roles Description");
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("description")
-          .setLabel("Embed description")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-      )
-    );
-
-    return interaction.showModal(modal);
-  }
-}
-
-// MODAL: description only
-if (interaction.isModalSubmit()) {
-  if (interaction.customId === "rr_description_modal") {
-    const description = interaction.fields.getTextInputValue("description");
-
-    // Step 2: Send GUI with 9 role selectors + 9 emoji inputs
-    const { RoleSelectMenuBuilder } = require("discord.js");
-
-    const rows = [];
-
-    for (let i = 1; i <= 9; i++) {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new RoleSelectMenuBuilder()
-            .setCustomId(`rr_role_${i}`)
-            .setPlaceholder(`Select role ${i}`)
-            .setMinValues(0)
-            .setMaxValues(1)
-        )
-      );
-    }
-
-    const emojiRow = new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("rr_emojis")
-        .setLabel("Enter 9 emojis separated by commas")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-    );
-
-    const submitRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("rr_submit")
-        .setLabel("Create Reaction Roles")
-        .setStyle(ButtonStyle.Success)
-    );
-
-    await interaction.reply({
-      content: "Select up to 9 roles and enter 9 emojis:",
-      components: [...rows, emojiRow, submitRow],
-      ephemeral: true
-    });
-
-    // Store description temporarily
-    client.tempRR = { description };
-  }
-}
-
-// BUTTON: submit reaction roles
-if (interaction.isButton()) {
-  if (interaction.customId === "rr_submit") {
-    const description = client.tempRR.description;
-
-    const selectedRoles = [];
-    for (let i = 1; i <= 9; i++) {
-      const menu = interaction.message.components[i - 1].components[0];
-      const roleId = menu.values[0];
-      if (roleId) selectedRoles.push(roleId);
-    }
-
-    const emojiInput = interaction.message.components[9].components[0].value;
-    const emojis = emojiInput.split(",").map(e => e.trim()).filter(e => e.length > 0);
-
-    if (emojis.length !== selectedRoles.length) {
+      const channel = interaction.options.getChannel("channel", true);
+      statsData.leaderboardChannel = channel.id;
+      statsData.leaderboardMessage = null;
+      saveStatsData();
       return interaction.reply({
-        content: "Number of emojis must match number of selected roles.",
+        content: `Stats/leaderboard channel set to ${channel}. Leaderboard will update every 5 minutes.`,
         ephemeral: true
       });
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(BURGUNDY)
-      .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
-      .setDescription(description)
-      .setImage(REACTION_ROLES_BANNER)
-      .setFooter({ text: OLGA_FOOTER });
-
-    const rows = [];
-    let currentRow = new ActionRowBuilder();
-
-    selectedRoles.forEach((roleId, index) => {
-      if (index > 0 && index % 5 === 0) {
-        rows.push(currentRow);
-        currentRow = new ActionRowBuilder();
+    // /rr create (9-role message GUI)
+    if (name === "rr" && interaction.options.getSubcommand() === "create") {
+      if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
       }
 
-      currentRow.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`rr_${roleId}`)
-          .setEmoji(emojis[index])
-          .setStyle(ButtonStyle.Secondary)
+      const descriptionModal = new ModalBuilder()
+        .setCustomId("rr_description_modal")
+        .setTitle("Reaction Roles Description");
+
+      descriptionModal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("description")
+            .setLabel("Embed description")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+        )
       );
-    });
 
-    if (currentRow.components.length > 0) rows.push(currentRow);
+      return interaction.showModal(descriptionModal);
+    }
 
-    await interaction.channel.send({ embeds: [embed], components: rows });
-
-    return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
-  }
-}
-
-
-    // /guessit start/end
+    // /guessit
     if (name === "guessit") {
       if (interaction.options.getSubcommand() === "start") {
         await startGuessingGame(interaction.channel);
@@ -856,15 +562,13 @@ if (interaction.isButton()) {
       }
     }
 
-    // /roastmode on/off (channel where executed)
+    // /roastmode
     if (name === "roastmode") {
       const mode = interaction.options.getString("mode");
       if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
       }
-
       roastChannelId = interaction.channel.id;
-
       if (mode === "on") {
         await startRoastMode();
         return interaction.reply({ content: "Roast mode turned ON. Enjoy the pain.", ephemeral: true });
@@ -875,57 +579,36 @@ if (interaction.isButton()) {
     }
 
     // /poll create
-    if (name === "poll") {
-      if (interaction.options.getSubcommand() === "create") {
-        const modal = new ModalBuilder()
-          .setCustomId("poll_create_modal")
-          .setTitle("Create Olgaistic Poll");
+    if (name === "poll" && interaction.options.getSubcommand() === "create") {
+      const modal = new ModalBuilder()
+        .setCustomId("poll_create_modal")
+        .setTitle("Create Olgaistic Poll");
 
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("option1")
-              .setLabel("Option 1 (required)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("option2")
-              .setLabel("Option 2 (required)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("option3")
-              .setLabel("Option 3 (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("option4")
-              .setLabel("Option 4 (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("option5")
-              .setLabel("Option 5 (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          )
-        );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("option1").setLabel("Option 1 (required)").setStyle(TextInputStyle.Short).setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("option2").setLabel("Option 2 (required)").setStyle(TextInputStyle.Short).setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("option3").setLabel("Option 3 (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("option4").setLabel("Option 4 (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("option5").setLabel("Option 5 (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        )
+      );
 
-        return interaction.showModal(modal);
-      }
+      return interaction.showModal(modal);
     }
   }
 
   // MODALS
   if (interaction.isModalSubmit()) {
+    // embed create
     if (interaction.customId === "embed_create_modal") {
       const title = interaction.fields.getTextInputValue("title");
       const description = interaction.fields.getTextInputValue("description");
@@ -944,13 +627,12 @@ if (interaction.isButton()) {
       if (text) embed.addFields({ name: "Text", value: text });
 
       await interaction.channel.send({ embeds: [embed] });
-
       return interaction.reply({ content: "Embed sent.", ephemeral: true });
     }
 
+    // olgasm announce
     if (interaction.customId === "olgasm_announce_modal") {
       const description = interaction.fields.getTextInputValue("description");
-
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
         .setTitle("📰 OLGASM 24' NEWS")
@@ -959,69 +641,40 @@ if (interaction.isButton()) {
         .setFooter({ text: OLGA_FOOTER });
 
       const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID).catch(() => null);
-      if (channel) {
-        await channel.send({ embeds: [embed] });
-      }
+      if (channel) await channel.send({ embeds: [embed] });
 
-      return interaction.reply({
-        content: `Announcement sent to <#${ANNOUNCE_CHANNEL_ID}>`,
-        ephemeral: true
-      });
+      return interaction.reply({ content: `Announcement sent to <#${ANNOUNCE_CHANNEL_ID}>`, ephemeral: true });
     }
 
-    if (interaction.customId === "rr_create_modal") {
+    // RR description modal -> send GUI with role select + button
+    if (interaction.customId === "rr_description_modal") {
       const description = interaction.fields.getTextInputValue("description");
 
-      const pairs = [];
-      for (let i = 1; i <= 9; i++) {
-        const emoji = interaction.fields.getTextInputValue(`emoji${i}`) || null;
-        const roleName = interaction.fields.getTextInputValue(`role${i}`) || null;
+      const roleSelect = new RoleSelectMenuBuilder()
+        .setCustomId("rr_role_select")
+        .setPlaceholder("Select up to 9 roles")
+        .setMinValues(1)
+        .setMaxValues(9);
 
-        if (emoji && roleName) {
-          const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
-          if (role) {
-            pairs.push({ emoji, roleId: role.id });
-          }
-        }
-      }
+      const row = new ActionRowBuilder().addComponents(roleSelect);
 
-      if (pairs.length === 0) {
-        return interaction.reply({ content: "No valid emoji/role pairs provided.", ephemeral: true });
-      }
+      const button = new ButtonBuilder()
+        .setCustomId("rr_confirm_roles")
+        .setLabel("Confirm roles & set emojis")
+        .setStyle(ButtonStyle.Success);
 
-      const embed = new EmbedBuilder()
-        .setColor(BURGUNDY)
-        .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
-        .setDescription(description)
-        .setImage(REACTION_ROLES_BANNER)
-        .setFooter({ text: OLGA_FOOTER });
+      const buttonRow = new ActionRowBuilder().addComponents(button);
 
-      const rows = [];
-      let currentRow = new ActionRowBuilder();
-
-      pairs.forEach((pair, index) => {
-        if (index > 0 && index % 5 === 0) {
-          rows.push(currentRow);
-          currentRow = new ActionRowBuilder();
-        }
-
-        currentRow.addComponents(
-          new ButtonBuilder()
-            .setCustomId(`rr_${pair.roleId}`)
-            .setEmoji(pair.emoji)
-            .setStyle(ButtonStyle.Secondary)
-        );
+      await interaction.reply({
+        content: "Select roles for reaction roles, then press the button:",
+        components: [row, buttonRow],
+        ephemeral: true
       });
 
-      if (currentRow.components.length > 0) {
-        rows.push(currentRow);
-      }
-
-      await interaction.channel.send({ embeds: [embed], components: rows });
-
-      return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
+      client.tempRR[interaction.user.id] = { description, roles: [], channelId: interaction.channel.id };
     }
 
+    // poll create
     if (interaction.customId === "poll_create_modal") {
       const option1 = interaction.fields.getTextInputValue("option1");
       const option2 = interaction.fields.getTextInputValue("option2");
@@ -1030,13 +683,9 @@ if (interaction.isButton()) {
       const option5 = interaction.fields.getTextInputValue("option5");
 
       const options = [option1, option2, option3, option4, option5].filter(o => o && o.trim().length > 0);
-
       const emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
 
-      let desc = "";
-      options.forEach((opt, idx) => {
-        desc += `${emojis[idx]} ${opt}\n`;
-      });
+      let desc = options.map((opt, i) => `${emojis[i]} ${opt}`).join("\n");
 
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
@@ -1053,39 +702,111 @@ if (interaction.isButton()) {
       );
 
       const pollMsg = await interaction.channel.send({ embeds: [embed], components: [row] });
-
-      for (let i = 0; i < options.length; i++) {
-        await pollMsg.react(emojis[i]);
-      }
+      for (let i = 0; i < options.length; i++) await pollMsg.react(emojis[i]);
 
       return interaction.reply({ content: "Poll created.", ephemeral: true });
     }
+
+    // RR emojis modal
+    if (interaction.customId === "rr_emojis_modal") {
+      const emojisInput = interaction.fields.getTextInputValue("emojis");
+      const emojis = emojisInput.split(",").map(e => e.trim()).filter(e => e.length > 0);
+
+      const temp = client.tempRR[interaction.user.id];
+      if (!temp || !temp.roles || temp.roles.length === 0) {
+        return interaction.reply({ content: "No roles stored for reaction roles. Try again.", ephemeral: true });
+      }
+
+      if (emojis.length !== temp.roles.length) {
+        return interaction.reply({
+          content: `Number of emojis (${emojis.length}) must match number of roles (${temp.roles.length}).`,
+          ephemeral: true
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
+        .setDescription(temp.description)
+        .setImage(REACTION_ROLES_BANNER)
+        .setFooter({ text: OLGA_FOOTER });
+
+      const rows = [];
+      let currentRow = new ActionRowBuilder();
+
+      temp.roles.forEach((roleId, index) => {
+        if (index > 0 && index % 5 === 0) {
+          rows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+        }
+
+        currentRow.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`rr_${roleId}`)
+            .setEmoji(emojis[index])
+            .setStyle(ButtonStyle.Secondary)
+        );
+      });
+
+      if (currentRow.components.length > 0) rows.push(currentRow);
+
+      const channel = await client.channels.fetch(temp.channelId).catch(() => null);
+      if (channel) await channel.send({ embeds: [embed], components: rows });
+
+      delete client.tempRR[interaction.user.id];
+
+      return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
+    }
   }
 
-  // BUTTONS (Reaction Roles)
+  // BUTTONS
   if (interaction.isButton()) {
+    // RR confirm roles -> open emojis modal
+    if (interaction.customId === "rr_confirm_roles") {
+      const temp = client.tempRR[interaction.user.id];
+      if (!temp) {
+        return interaction.reply({ content: "No description stored. Try /rr create again.", ephemeral: true });
+      }
+
+      const roleSelectComponent = interaction.message.components[0].components[0];
+      const selectedRoles = roleSelectComponent.values;
+      if (!selectedRoles || selectedRoles.length === 0) {
+        return interaction.reply({ content: "Select at least one role.", ephemeral: true });
+      }
+
+      temp.roles = selectedRoles;
+      client.tempRR[interaction.user.id] = temp;
+
+      const emojisModal = new ModalBuilder()
+        .setCustomId("rr_emojis_modal")
+        .setTitle("Reaction Roles Emojis");
+
+      emojisModal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("emojis")
+            .setLabel(`Enter ${selectedRoles.length} emojis separated by commas`)
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+        )
+      );
+
+      return interaction.showModal(emojisModal);
+    }
+
+    // Reaction roles buttons
     if (interaction.customId.startsWith("rr_")) {
       const roleId = interaction.customId.replace("rr_", "");
       const role = interaction.guild.roles.cache.get(roleId);
-
-      if (!role) {
-        return interaction.reply({ content: "Role not found.", ephemeral: true });
-      }
+      if (!role) return interaction.reply({ content: "Role not found.", ephemeral: true });
 
       const member = interaction.member;
-
       if (member.roles.cache.has(roleId)) {
         await member.roles.remove(roleId);
-        return interaction.reply({
-          content: `Removed role **${role.name}**`,
-          ephemeral: true
-        });
+        return interaction.reply({ content: `Removed role **${role.name}**`, ephemeral: true });
       } else {
         await member.roles.add(roleId);
-        return interaction.reply({
-          content: `Added role **${role.name}**`,
-          ephemeral: true
-        });
+        return interaction.reply({ content: `Added role **${role.name}**`, ephemeral: true });
       }
     }
   }
