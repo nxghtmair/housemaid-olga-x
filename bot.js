@@ -13,13 +13,15 @@ const {
   ButtonStyle
 } = require("discord.js");
 const fs = require("fs");
+const fetch = require("node-fetch");
 require("dotenv").config();
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
   ]
 });
 
@@ -32,6 +34,8 @@ const ANNOUNCE_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677
 const LEADERBOARD_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1555666251773255852/image.png";
 const REACTION_ROLES_BANNER = "https://cdn.discordapp.com/attachments/1212370536416677949/1556038451646828655/image.png";
 const COUNTING_CHANNEL_ID = "1515690705664741466";
+const CONFESSION_CHANNEL_ID = "1555989423903080592";
+const CONFESSION_IMAGE = "https://cdn.discordapp.com/attachments/1212370536416677949/1556361090600935465/67cb4592-d1cb-4583-b4d4-dfba22023d91.png?backend=b2&ex=6ac3e1b7&is=6ac29037&hm=e193e60acfa778660d2f9869f22040dee284ae5773c68dc5767c1075920c193b&";
 
 // DATA PATHS
 const CHAT_DATA_PATH = "./data/chatLevels.json";
@@ -43,13 +47,59 @@ let statsData = { leaderboardChannel: null, leaderboardMessage: null };
 // COUNTING GAME STATE
 let countingState = { lastNumber: 0, lastUserId: null };
 
+// CONFESSION STATE
+let confessionCounter = 0;
+let pendingConfessions = {}; // userId -> true
+
 // GUESSING GAME
 const GUESS_ITEMS = [
   { answer: "cat", hints: ["It’s a small furry animal that loves to ignore you.", "It often knocks things off tables for fun."] },
   { answer: "pizza", hints: ["It’s round, cheesy, and often delivered in a box.", "People argue about pineapple on it."] },
   { answer: "phone", hints: ["You stare at it way too much every day.", "It fits in your hand and connects you to everyone."] },
   { answer: "car", hints: ["It has four wheels and takes you places.", "You sit inside it and complain about traffic."] },
-  { answer: "bed", hints: ["You visit it every night.", "It’s where you pretend you’ll sleep early but don’t."] }
+  { answer: "bed", hints: ["You visit it every night.", "It’s where you pretend you’ll sleep early but don’t."] },
+
+  { answer: "vibrator", hints: ["It’s small, loud, and makes people smile in private.", "You definitely don’t show this to your grandma."] },
+  { answer: "gym", hints: ["You say you’ll go there, but you don’t.", "It’s full of mirrors, sweat, and regret."] },
+  { answer: "obesity", hints: ["It sneaks up one snack at a time.", "Doctors don’t love it, but fast food does."] },
+  { answer: "mirror", hints: ["You look into it and judge yourself.", "It never lies, but you wish it did."] },
+  { answer: "treadmill", hints: ["You run but go nowhere.", "It’s the machine of fake progress and real sweat."] },
+  { answer: "dumbbell", hints: ["You lift it to feel strong.", "It’s heavy, unlike your excuses."] },
+  { answer: "fridge", hints: ["You open it when you’re bored, not hungry.", "It’s where your midnight sins live."] },
+  { answer: "donut", hints: ["It’s round, sweet, and a bad idea.", "It has a hole, but your self-control doesn’t."] },
+  { answer: "coffee", hints: ["You drink it to pretend you’re alive.", "It smells better than your sleep schedule."] },
+  { answer: "alarm", hints: ["You hate it but need it.", "You always say ‘5 more minutes’ to it."] },
+  { answer: "homework", hints: ["You avoid it until it’s too late.", "Teachers love it, students don’t."] },
+  { answer: "discord", hints: ["You spend hours here instead of touching grass.", "It’s full of servers, drama, and pings."] },
+  { answer: "keyboard", hints: ["You slam it when you’re mad.", "It’s how you type your bad takes."] },
+  { answer: "mouse", hints: ["You click it way too much.", "It controls your entire screen like a tiny god."] },
+  { answer: "wifi", hints: ["You cry when it dies.", "It’s invisible but controls your mood."] },
+  { answer: "router", hints: ["You blame it for everything.", "It just sits there with blinking lights."] },
+  { answer: "headphones", hints: ["You wear them to ignore people.", "They deliver music and emotional damage."] },
+  { answer: "spotify", hints: ["You use it to loop sad songs.", "It knows your taste better than your friends."] },
+  { answer: "snapchat", hints: ["You send ugly pics with filters.", "Streaks matter more than real friendships."] },
+  { answer: "instagram", hints: ["You scroll and compare your life to others.", "It’s full of fake perfection and real insecurity."] },
+  { answer: "tiktok", hints: ["You say ‘just one more’ and lose 3 hours.", "It’s short videos, long addiction."] },
+  { answer: "bathroom", hints: ["You go there to cry or scroll.", "It’s the throne room of overthinking."] },
+  { answer: "scale", hints: ["You step on it and regret everything.", "It shows numbers, not feelings."] },
+  { answer: "burger", hints: ["It’s juicy, messy, and worth it.", "Your diet cries when you see it."] },
+  { answer: "salad", hints: ["You eat it when you feel guilty.", "It’s leaves pretending to be food."] },
+  { answer: "water", hints: ["You forget to drink it all day.", "It’s the one thing your body actually needs."] },
+  { answer: "sleep", hints: ["You say you’ll get more of it.", "You never actually do."] },
+  { answer: "blanket", hints: ["You hide under it from responsibilities.", "It’s soft, warm, and enabling."] },
+  { answer: "pillows", hints: ["You scream into them sometimes.", "They catch your tears and your drool."] },
+  { answer: "notebook", hints: ["You buy it to be productive.", "You only fill 3 pages and quit."] },
+  { answer: "pen", hints: ["You lose it in 2 days.", "It writes your lies on homework."] },
+  { answer: "teacher", hints: ["They give you homework and disappointment.", "You fear them more than your parents sometimes."] },
+  { answer: "exam", hints: ["You pretend to study for it.", "It exposes how much you lied to yourself."] },
+  { answer: "bus", hints: ["You hate it but need it.", "It’s full of strangers and weird smells."] },
+  { answer: "train", hints: ["You stare out the window and overthink.", "It takes you places while you do nothing."] },
+  { answer: "shoe", hints: ["You wear it to pretend you go outside.", "It protects your feet from touching reality."] },
+  { answer: "hoodie", hints: ["You live in it.", "It hides your body and your laziness."] },
+  { answer: "mirror selfie", hints: ["You take it when you feel hot.", "You delete 20 before posting one."] },
+  { answer: "vape", hints: ["You say you can quit anytime.", "It smells like fake fruit and bad decisions."] },
+  { answer: "cigarette", hints: ["It burns your lungs and your money.", "You know it’s bad but still do it."] },
+  { answer: "energy drink", hints: ["You drink it instead of sleeping.", "Your heart hates it, your brain loves it."] }
 ];
 
 let guessState = { currentIndex: null, hintIndex: 0, lastHintMessageId: null };
@@ -243,7 +293,7 @@ client.once("ready", async () => {
   loadChatData();
   loadStatsData();
 
-  client.user.setStatus("idle");
+  client.user.setStatus("dnd");
   client.user.setActivity(" 🎃👻Olgasm V5: Season 5", { type: ActivityType.Playing });
 
   const commands = [
@@ -324,7 +374,12 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("poll")
       .setDescription("Create polls")
-      .addSubcommand(sub => sub.setName("create").setDescription("Create a poll"))
+      .addSubcommand(sub => sub.setName("create").setDescription("Create a poll")),
+
+    new SlashCommandBuilder()
+      .setName("confession")
+      .setDescription("Anonymous confession system")
+      .addSubcommand(sub => sub.setName("create").setDescription("Create an anonymous confession"))
   ].map(c => c.toJSON());
 
   await client.application.commands.set(commands);
@@ -335,6 +390,46 @@ client.once("ready", async () => {
 
 // MESSAGE HANDLER
 client.on("messageCreate", async (msg) => {
+  // DM confession handling
+  if (!msg.guild && !msg.author.bot) {
+    const userId = msg.author.id;
+    if (pendingConfessions[userId]) {
+      const confessionText = msg.content.trim();
+      if (!confessionText.length) return;
+
+      // Confirm DM
+      const confirmEmbed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setDescription("your confession has been submitted, now go lift, minge.")
+        .setFooter({ text: OLGA_FOOTER });
+
+      await msg.channel.send({ embeds: [confirmEmbed] });
+
+      // Publish confession
+      confessionCounter += 1;
+      const confessionChannel = await client.channels.fetch(CONFESSION_CHANNEL_ID).catch(() => null);
+      if (confessionChannel && confessionChannel.isTextBased()) {
+        const title = `⇢ ˗ˏˋ 😥Confession No. ${confessionCounter} ࿐ྂ`;
+        const confessionEmbed = new EmbedBuilder()
+          .setColor(BURGUNDY)
+          .setTitle(title)
+          .setDescription(confessionText)
+          .setImage(CONFESSION_IMAGE)
+          .setFooter({ text: OLGA_FOOTER });
+
+        const confessionMessage = await confessionChannel.send({ embeds: [confessionEmbed] });
+        await confessionMessage.startThread({
+          name: "debate",
+          autoArchiveDuration: 1440
+        });
+      }
+
+      delete pendingConfessions[userId];
+      return;
+    }
+    return;
+  }
+
   if (!msg.guild || msg.author.bot) return;
 
   // WEEKLY RESET
@@ -642,6 +737,27 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.showModal(modal);
     }
+
+    // /confession create
+    if (name === "confession" && interaction.options.getSubcommand() === "create") {
+      const user = interaction.user;
+
+      try {
+        const dm = await user.createDM();
+        const introEmbed = new EmbedBuilder()
+          .setColor(BURGUNDY)
+          .setDescription("thanks for using our confession system, obese donkey. write your confession below")
+          .setFooter({ text: OLGA_FOOTER });
+
+        await dm.send({ embeds: [introEmbed] });
+        pendingConfessions[user.id] = true;
+
+        return interaction.reply({ content: "Check your DMs, fat bitch.", ephemeral: true });
+      } catch (e) {
+        console.error("DM error for confession:", e);
+        return interaction.reply({ content: "I couldn’t DM you. Enable DMs from server members, cunt.", ephemeral: true });
+      }
+    }
   }
 
   // MODALS
@@ -744,5 +860,10 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
+
+// KEEP-ALIVE PING EVERY 3 MINUTES
+setInterval(() => {
+  fetch("https://housemaid-olga-x.onrender.com/").catch(() => {});
+}, 180000); // 180000 ms = 3 minutes
 
 client.login(process.env.TOKEN);
