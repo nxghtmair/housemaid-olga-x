@@ -10,8 +10,7 @@ const {
   ActionRowBuilder,
   PermissionFlagsBits,
   ButtonBuilder,
-  ButtonStyle,
-  StringSelectMenuBuilder
+  ButtonStyle
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -72,9 +71,6 @@ const ROASTS = [
   "your body is a cry for help, not a fashion statement.",
   "you’re one snack away from becoming a cautionary tale."
 ];
-
-// TEMP STORAGE FOR RR SETUP
-client.tempRR = {}; // userId -> { roles: [roleId], channelId, description }
 
 function ensureDataFolder() {
   if (!fs.existsSync("./data")) fs.mkdirSync("./data");
@@ -306,7 +302,7 @@ client.once("ready", async () => {
       .setName("rr")
       .setDescription("Reaction roles system")
       .addSubcommand(sub =>
-        sub.setName("create").setDescription("Create a reaction roles embed")
+        sub.setName("create").setDescription("Create the Olga reaction roles embed")
       ),
 
     new SlashCommandBuilder()
@@ -527,27 +523,66 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // /rr create (9-role message GUI)
+    // /rr create — fixed Olga reaction roles embed
     if (name === "rr" && interaction.options.getSubcommand() === "create") {
       if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
       }
 
-      const descriptionModal = new ModalBuilder()
-        .setCustomId("rr_description_modal")
-        .setTitle("Reaction Roles Description");
+      const description =
+        "- 🏚️would you like to engage with the house, be notified ab incoming events, gossip etc.? well, u r at the right spot, bitch.\n\n" +
+        "📣 <@1556036642777596024>\n" +
+        "📺 <@1556036938392150126>\n" +
+        "😈 <@1556036823879524352>\n" +
+        "🏚️ <@1556036256746704951>\n" +
+        "👻 <@1556036171635753040>\n" +
+        "💭 <@1556036057839968397>\n" +
+        "📩 <@1556036642777596024>\n" +
+        "📲 <@1556035954744229931>\n" +
+        "❓ <@1556036589908529266>\n" +
+        "👏 <@1556036346546487436>";
 
-      descriptionModal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("description")
-            .setLabel("Embed description")
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(true)
-        )
-      );
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setTitle(" ≡;- ꒰ °Reaction roles ꒱ ")
+        .setDescription(description)
+        .setImage(REACTION_ROLES_BANNER)
+        .setFooter({ text: OLGA_FOOTER });
 
-      return interaction.showModal(descriptionModal);
+      const mapping = [
+        { emoji: "📣", roleId: "1556036642777596024" },
+        { emoji: "📺", roleId: "1556036938392150126" },
+        { emoji: "😈", roleId: "1556036823879524352" },
+        { emoji: "🏚️", roleId: "1556036256746704951" },
+        { emoji: "👻", roleId: "1556036171635753040" },
+        { emoji: "💭", roleId: "1556036057839968397" },
+        { emoji: "📩", roleId: "1556036642777596024" },
+        { emoji: "📲", roleId: "1556035954744229931" },
+        { emoji: "❓", roleId: "1556036589908529266" },
+        { emoji: "👏", roleId: "1556036346546487436" }
+      ];
+
+      const rows = [];
+      let currentRow = new ActionRowBuilder();
+
+      mapping.forEach((item, index) => {
+        if (index > 0 && index % 5 === 0) {
+          rows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+        }
+
+        currentRow.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`rr_${item.roleId}_${index}`)
+            .setEmoji(item.emoji)
+            .setStyle(ButtonStyle.Secondary)
+        );
+      });
+
+      if (currentRow.components.length > 0) rows.push(currentRow);
+
+      await interaction.channel.send({ embeds: [embed], components: rows });
+      return interaction.reply({ content: "Reaction roles embed created.", ephemeral: true });
     }
 
     // /guessit
@@ -599,24 +634,13 @@ client.on("interactionCreate", async (interaction) => {
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder().setCustomId("option5").setLabel("Option 5 (optional)").setStyle(TextInputStyle.Short).setRequired(false)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId("option6").setLabel("Option 6 (optional)").setStyle(TextInputStyle.Short).setRequired(false)
         )
       );
 
       return interaction.showModal(modal);
-    }
-  }
-
-  // SELECT MENUS (RR role select)
-  if (interaction.isStringSelectMenu()) {
-    if (interaction.customId === "rr_role_select") {
-      const temp = client.tempRR[interaction.user.id];
-      if (!temp) {
-        client.tempRR[interaction.user.id] = { description: "", roles: [], channelId: interaction.channel.id };
-      }
-      client.tempRR[interaction.user.id].roles = interaction.values;
-      client.tempRR[interaction.user.id].channelId = interaction.channel.id;
-
-      return interaction.reply({ content: `Selected ${interaction.values.length} role(s) for reaction roles.`, ephemeral: true });
     }
   }
 
@@ -660,44 +684,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `Announcement sent to <#${ANNOUNCE_CHANNEL_ID}>`, ephemeral: true });
     }
 
-    // RR description modal -> send GUI with role select + button
-    if (interaction.customId === "rr_description_modal") {
-      const description = interaction.fields.getTextInputValue("description");
-
-      const roles = interaction.guild.roles.cache
-        .filter(r => !r.managed)
-        .sort((a, b) => b.position - a.position)
-        .map(r => ({
-          label: r.name,
-          value: r.id
-        }))
-        .slice(0, 25); // Discord limit
-
-      const roleSelect = new StringSelectMenuBuilder()
-        .setCustomId("rr_role_select")
-        .setPlaceholder("Select up to 9 roles")
-        .setMinValues(1)
-        .setMaxValues(Math.min(9, roles.length))
-        .addOptions(roles);
-
-      const row = new ActionRowBuilder().addComponents(roleSelect);
-
-      const button = new ButtonBuilder()
-        .setCustomId("rr_confirm_roles")
-        .setLabel("Confirm roles & set emojis")
-        .setStyle(ButtonStyle.Success);
-
-      const buttonRow = new ActionRowBuilder().addComponents(button);
-
-      await interaction.reply({
-        content: "Select roles for reaction roles, then press the button:",
-        components: [row, buttonRow],
-        ephemeral: true
-      });
-
-      client.tempRR[interaction.user.id] = { description, roles: [], channelId: interaction.channel.id };
-    }
-
     // poll create
     if (interaction.customId === "poll_create_modal") {
       const option1 = interaction.fields.getTextInputValue("option1");
@@ -705,9 +691,10 @@ client.on("interactionCreate", async (interaction) => {
       const option3 = interaction.fields.getTextInputValue("option3");
       const option4 = interaction.fields.getTextInputValue("option4");
       const option5 = interaction.fields.getTextInputValue("option5");
+      const option6 = interaction.fields.getTextInputValue("option6");
 
-      const options = [option1, option2, option3, option4, option5].filter(o => o && o.trim().length > 0);
-      const emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
+      const options = [option1, option2, option3, option4, option5, option6].filter(o => o && o.trim().length > 0);
+      const emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"];
 
       let desc = options.map((opt, i) => `${emojis[i]} ${opt}`).join("\n");
 
@@ -730,92 +717,14 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.reply({ content: "Poll created.", ephemeral: true });
     }
-
-    // RR emojis modal
-    if (interaction.customId === "rr_emojis_modal") {
-      const emojisInput = interaction.fields.getTextInputValue("emojis");
-      const emojis = emojisInput.split(",").map(e => e.trim()).filter(e => e.length > 0);
-
-      const temp = client.tempRR[interaction.user.id];
-      if (!temp || !temp.roles || temp.roles.length === 0) {
-        return interaction.reply({ content: "No roles stored for reaction roles. Try again.", ephemeral: true });
-      }
-
-      if (emojis.length !== temp.roles.length) {
-        return interaction.reply({
-          content: `Number of emojis (${emojis.length}) must match number of roles (${temp.roles.length}).`,
-          ephemeral: true
-        });
-      }
-
-      const embed = new EmbedBuilder()
-        .setColor(BURGUNDY)
-        .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
-        .setDescription(temp.description)
-        .setImage(REACTION_ROLES_BANNER)
-        .setFooter({ text: OLGA_FOOTER });
-
-      const rows = [];
-      let currentRow = new ActionRowBuilder();
-
-      temp.roles.forEach((roleId, index) => {
-        if (index > 0 && index % 5 === 0) {
-          rows.push(currentRow);
-          currentRow = new ActionRowBuilder();
-        }
-
-        currentRow.addComponents(
-          new ButtonBuilder()
-            .setCustomId(`rr_${roleId}`)
-            .setEmoji(emojis[index])
-            .setStyle(ButtonStyle.Secondary)
-        );
-      });
-
-      if (currentRow.components.length > 0) rows.push(currentRow);
-
-      const channel = await client.channels.fetch(temp.channelId).catch(() => null);
-      if (channel) await channel.send({ embeds: [embed], components: rows });
-
-      delete client.tempRR[interaction.user.id];
-
-      return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
-    }
   }
 
   // BUTTONS
   if (interaction.isButton()) {
-    // RR confirm roles -> open emojis modal
-    if (interaction.customId === "rr_confirm_roles") {
-      const temp = client.tempRR[interaction.user.id];
-      if (!temp) {
-        return interaction.reply({ content: "No description stored. Try /rr create again.", ephemeral: true });
-      }
-
-      if (!temp.roles || temp.roles.length === 0) {
-        return interaction.reply({ content: "Select at least one role in the dropdown first.", ephemeral: true });
-      }
-
-      const emojisModal = new ModalBuilder()
-        .setCustomId("rr_emojis_modal")
-        .setTitle("Reaction Roles Emojis");
-
-      emojisModal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("emojis")
-            .setLabel(`Enter ${temp.roles.length} emojis separated by commas`)
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(true)
-        )
-      );
-
-      return interaction.showModal(emojisModal);
-    }
-
     // Reaction roles buttons
     if (interaction.customId.startsWith("rr_")) {
-      const roleId = interaction.customId.replace("rr_", "");
+      const parts = interaction.customId.split("_");
+      const roleId = parts[1];
       const role = interaction.guild.roles.cache.get(roleId);
       if (!role) return interaction.reply({ content: "Role not found.", ephemeral: true });
 
@@ -827,6 +736,11 @@ client.on("interactionCreate", async (interaction) => {
         await member.roles.add(roleId);
         return interaction.reply({ content: `Added role **${role.name}**`, ephemeral: true });
       }
+    }
+
+    // Poll creator info button (do nothing, just disabled)
+    if (interaction.customId === "poll_creator_info") {
+      return interaction.reply({ content: "This button only shows who created the poll.", ephemeral: true });
     }
   }
 });
