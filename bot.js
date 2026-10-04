@@ -484,34 +484,52 @@ client.on("messageCreate", async (msg) => {
   userData.messagesWeek += 1;
   saveChatData();
 
-  // COUNTING GAME
+  // COUNTING GAME (FIXED)
   if (msg.channel.id === COUNTING_CHANNEL_ID) {
     const num = parseInt(msg.content.trim(), 10);
     if (isNaN(num)) return;
 
+    const correctEmoji = "1556263477969166436";
+    const wrongEmoji = "1556263655392280576";
+
+    // If same user tries twice
     if (countingState.lastUserId === msg.author.id) {
+      await msg.react(wrongEmoji);
+
+      const ruinedAt = countingState.lastNumber === 0 ? "0" : countingState.lastNumber;
+
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
-        .setDescription(`stupid <@${msg.author.id}> messed up at **${num}** , what a dumb bitch!`)
+        .setDescription(`stupid <@${msg.author.id}> messed up at **${ruinedAt}** , what a dumb bitch!`)
         .setFooter({ text: OLGA_FOOTER });
 
       await msg.channel.send({ embeds: [embed] });
+
       countingState.lastNumber = 0;
       countingState.lastUserId = null;
       return;
     }
 
+    // If number is wrong
     if (countingState.lastNumber !== 0 && num !== countingState.lastNumber + 1) {
+      await msg.react(wrongEmoji);
+
+      const ruinedAt = countingState.lastNumber;
+
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
-        .setDescription(`stupid <@${msg.author.id}> messed up at **${num}** , what a dumb bitch!`)
+        .setDescription(`stupid <@${msg.author.id}> messed up at **${ruinedAt}** , what a dumb bitch!`)
         .setFooter({ text: OLGA_FOOTER });
 
       await msg.channel.send({ embeds: [embed] });
+
       countingState.lastNumber = 0;
       countingState.lastUserId = null;
       return;
     }
+
+    // Correct number
+    await msg.react(correctEmoji);
 
     countingState.lastNumber = num;
     countingState.lastUserId = msg.author.id;
@@ -697,7 +715,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // /rr create (fixed modal within 5 rows)
+    // /rr create (now supports up to 9 roles)
     if (name === "rr") {
       if (interaction.options.getSubcommand() === "create") {
         if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
@@ -879,9 +897,9 @@ client.on("interactionCreate", async (interaction) => {
       const description = interaction.fields.getTextInputValue("description");
 
       const pairs = [];
-      for (let i = 1; i <= 2; i++) {
-        const emoji = interaction.fields.getTextInputValue(`emoji${i}`);
-        const roleName = interaction.fields.getTextInputValue(`role${i}`);
+      for (let i = 1; i <= 9; i++) {
+        const emoji = interaction.fields.getTextInputValue(`emoji${i}`) || null;
+        const roleName = interaction.fields.getTextInputValue(`role${i}`) || null;
 
         if (emoji && roleName) {
           const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
@@ -902,10 +920,16 @@ client.on("interactionCreate", async (interaction) => {
         .setImage(REACTION_ROLES_BANNER)
         .setFooter({ text: OLGA_FOOTER });
 
-      const row = new ActionRowBuilder();
+      const rows = [];
+      let currentRow = new ActionRowBuilder();
 
-      pairs.forEach(pair => {
-        row.addComponents(
+      pairs.forEach((pair, index) => {
+        if (index > 0 && index % 5 === 0) {
+          rows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+        }
+
+        currentRow.addComponents(
           new ButtonBuilder()
             .setCustomId(`rr_${pair.roleId}`)
             .setEmoji(pair.emoji)
@@ -913,7 +937,11 @@ client.on("interactionCreate", async (interaction) => {
         );
       });
 
-      await interaction.channel.send({ embeds: [embed], components: [row] });
+      if (currentRow.components.length > 0) {
+        rows.push(currentRow);
+      }
+
+      await interaction.channel.send({ embeds: [embed], components: rows });
 
       return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
     }
