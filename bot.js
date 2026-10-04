@@ -34,7 +34,7 @@ const REACTION_ROLES_BANNER = "https://cdn.discordapp.com/attachments/1212370536
 const COUNTING_CHANNEL_ID = "1515690705664741466";
 
 // DATA PATHS
-const CHAT_DATA_PATH = "./data/chatLevels.json"; // now only messagesWeek + messagesTotal
+const CHAT_DATA_PATH = "./data/chatLevels.json"; // messagesWeek + messagesTotal
 const STATS_DATA_PATH = "./data/stats.json";
 
 let chatData = {
@@ -101,6 +101,7 @@ let guessState = {
 // ROAST MODE
 let roastModeOn = false;
 let roastInterval = null;
+let roastChannelId = null;
 
 const ROASTS = [
   "your body screams help, go lift, bitch.",
@@ -276,22 +277,18 @@ function getCurrentGuessItem() {
 
 // ROAST MODE HELPERS
 async function startRoastMode() {
-  if (roastModeOn) return;
+  if (roastModeOn || !roastChannelId) return;
   roastModeOn = true;
 
   roastInterval = setInterval(async () => {
     try {
-      // random user from chatData (anyone who has ever sent a message)
       const userIds = Object.keys(chatData.users);
       if (userIds.length === 0) return;
 
       const randomUserId = userIds[Math.floor(Math.random() * userIds.length)];
       const randomRoast = ROASTS[Math.floor(Math.random() * ROASTS.length)];
 
-      const channelId = statsData.leaderboardChannel;
-      if (!channelId) return;
-
-      const channel = await client.channels.fetch(channelId).catch(() => null);
+      const channel = await client.channels.fetch(roastChannelId).catch(() => null);
       if (!channel) return;
 
       const embed = new EmbedBuilder()
@@ -445,6 +442,15 @@ client.once("ready", async () => {
             { name: "on", value: "on" },
             { name: "off", value: "off" }
           )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("poll")
+      .setDescription("Create polls")
+      .addSubcommand(sub =>
+        sub
+          .setName("create")
+          .setDescription("Create a poll")
       )
   ].map(c => c.toJSON());
 
@@ -471,7 +477,7 @@ client.on("messageCreate", async (msg) => {
     saveChatData();
   }
 
-  // COUNT TOTAL + WEEKLY MESSAGES (for all channels)
+  // COUNT TOTAL + WEEKLY MESSAGES
   const userId = msg.author.id;
   const userData = ensureUser(userId);
   userData.messagesTotal += 1;
@@ -483,7 +489,6 @@ client.on("messageCreate", async (msg) => {
     const num = parseInt(msg.content.trim(), 10);
     if (isNaN(num)) return;
 
-    // one person can't count alone
     if (countingState.lastUserId === msg.author.id) {
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
@@ -496,7 +501,6 @@ client.on("messageCreate", async (msg) => {
       return;
     }
 
-    // must be exactly +1
     if (countingState.lastNumber !== 0 && num !== countingState.lastNumber + 1) {
       const embed = new EmbedBuilder()
         .setColor(BURGUNDY)
@@ -693,7 +697,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // /rr create
+    // /rr create (fixed modal within 5 rows)
     if (name === "rr") {
       if (interaction.options.getSubcommand() === "create") {
         if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
@@ -739,48 +743,6 @@ client.on("interactionCreate", async (interaction) => {
               .setLabel("Role name 2")
               .setStyle(TextInputStyle.Short)
               .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("emoji3")
-              .setLabel("Emoji 3")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("role3")
-              .setLabel("Role name 3")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("emoji4")
-              .setLabel("Emoji 4")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("role4")
-              .setLabel("Role name 4")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("emoji5")
-              .setLabel("Emoji 5")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("role5")
-              .setLabel("Role name 5")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
           )
         );
 
@@ -800,12 +762,14 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // /roastmode on/off
+    // /roastmode on/off (channel where executed)
     if (name === "roastmode") {
       const mode = interaction.options.getString("mode");
       if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
       }
+
+      roastChannelId = interaction.channel.id;
 
       if (mode === "on") {
         await startRoastMode();
@@ -813,6 +777,55 @@ client.on("interactionCreate", async (interaction) => {
       } else {
         stopRoastMode();
         return interaction.reply({ content: "Roast mode turned OFF. You’re safe… for now.", ephemeral: true });
+      }
+    }
+
+    // /poll create
+    if (name === "poll") {
+      if (interaction.options.getSubcommand() === "create") {
+        const modal = new ModalBuilder()
+          .setCustomId("poll_create_modal")
+          .setTitle("Create Olgaistic Poll");
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("option1")
+              .setLabel("Option 1 (required)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("option2")
+              .setLabel("Option 2 (required)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("option3")
+              .setLabel("Option 3 (optional)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("option4")
+              .setLabel("Option 4 (optional)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("option5")
+              .setLabel("Option 5 (optional)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          )
+        );
+
+        return interaction.showModal(modal);
       }
     }
   }
@@ -866,7 +879,7 @@ client.on("interactionCreate", async (interaction) => {
       const description = interaction.fields.getTextInputValue("description");
 
       const pairs = [];
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= 2; i++) {
         const emoji = interaction.fields.getTextInputValue(`emoji${i}`);
         const roleName = interaction.fields.getTextInputValue(`role${i}`);
 
@@ -903,6 +916,45 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.channel.send({ embeds: [embed], components: [row] });
 
       return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
+    }
+
+    if (interaction.customId === "poll_create_modal") {
+      const option1 = interaction.fields.getTextInputValue("option1");
+      const option2 = interaction.fields.getTextInputValue("option2");
+      const option3 = interaction.fields.getTextInputValue("option3");
+      const option4 = interaction.fields.getTextInputValue("option4");
+      const option5 = interaction.fields.getTextInputValue("option5");
+
+      const options = [option1, option2, option3, option4, option5].filter(o => o && o.trim().length > 0);
+
+      const emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
+
+      let desc = "";
+      options.forEach((opt, idx) => {
+        desc += `${emojis[idx]} ${opt}\n`;
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(BURGUNDY)
+        .setTitle("❓Olgaistic Poll")
+        .setDescription(desc)
+        .setFooter({ text: OLGA_FOOTER });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("poll_creator_info")
+          .setLabel(`📲Poll creator: ${interaction.user.tag}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
+
+      const pollMsg = await interaction.channel.send({ embeds: [embed], components: [row] });
+
+      for (let i = 0; i < options.length; i++) {
+        await pollMsg.react(emojis[i]);
+      }
+
+      return interaction.reply({ content: "Poll created.", ephemeral: true });
     }
   }
 
