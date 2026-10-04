@@ -715,58 +715,134 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // /rr create (now supports up to 9 roles)
-    if (name === "rr") {
-      if (interaction.options.getSubcommand() === "create") {
-        if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
-        }
-
-        const modal = new ModalBuilder()
-          .setCustomId("rr_create_modal")
-          .setTitle("Create Reaction Roles");
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("description")
-              .setLabel("Embed description")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("emoji1")
-              .setLabel("Emoji 1")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("role1")
-              .setLabel("Role name 1")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("emoji2")
-              .setLabel("Emoji 2")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("role2")
-              .setLabel("Role name 2")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-          )
-        );
-
-        return interaction.showModal(modal);
-      }
+    // /rr create (supports 9 roles with dropdowns)
+if (name === "rr") {
+  if (interaction.options.getSubcommand() === "create") {
+    if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: "You are not allowed to use this command.", ephemeral: true });
     }
+
+    // Step 1: Ask for description via modal
+    const modal = new ModalBuilder()
+      .setCustomId("rr_description_modal")
+      .setTitle("Reaction Roles Description");
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Embed description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+      )
+    );
+
+    return interaction.showModal(modal);
+  }
+}
+
+// MODAL: description only
+if (interaction.isModalSubmit()) {
+  if (interaction.customId === "rr_description_modal") {
+    const description = interaction.fields.getTextInputValue("description");
+
+    // Step 2: Send GUI with 9 role selectors + 9 emoji inputs
+    const { RoleSelectMenuBuilder } = require("discord.js");
+
+    const rows = [];
+
+    for (let i = 1; i <= 9; i++) {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new RoleSelectMenuBuilder()
+            .setCustomId(`rr_role_${i}`)
+            .setPlaceholder(`Select role ${i}`)
+            .setMinValues(0)
+            .setMaxValues(1)
+        )
+      );
+    }
+
+    const emojiRow = new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("rr_emojis")
+        .setLabel("Enter 9 emojis separated by commas")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+    );
+
+    const submitRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("rr_submit")
+        .setLabel("Create Reaction Roles")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    await interaction.reply({
+      content: "Select up to 9 roles and enter 9 emojis:",
+      components: [...rows, emojiRow, submitRow],
+      ephemeral: true
+    });
+
+    // Store description temporarily
+    client.tempRR = { description };
+  }
+}
+
+// BUTTON: submit reaction roles
+if (interaction.isButton()) {
+  if (interaction.customId === "rr_submit") {
+    const description = client.tempRR.description;
+
+    const selectedRoles = [];
+    for (let i = 1; i <= 9; i++) {
+      const menu = interaction.message.components[i - 1].components[0];
+      const roleId = menu.values[0];
+      if (roleId) selectedRoles.push(roleId);
+    }
+
+    const emojiInput = interaction.message.components[9].components[0].value;
+    const emojis = emojiInput.split(",").map(e => e.trim()).filter(e => e.length > 0);
+
+    if (emojis.length !== selectedRoles.length) {
+      return interaction.reply({
+        content: "Number of emojis must match number of selected roles.",
+        ephemeral: true
+      });
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(BURGUNDY)
+      .setTitle(".·:*¨¨* ≈Reaction Roles≈ *¨¨*:·.")
+      .setDescription(description)
+      .setImage(REACTION_ROLES_BANNER)
+      .setFooter({ text: OLGA_FOOTER });
+
+    const rows = [];
+    let currentRow = new ActionRowBuilder();
+
+    selectedRoles.forEach((roleId, index) => {
+      if (index > 0 && index % 5 === 0) {
+        rows.push(currentRow);
+        currentRow = new ActionRowBuilder();
+      }
+
+      currentRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`rr_${roleId}`)
+          .setEmoji(emojis[index])
+          .setStyle(ButtonStyle.Secondary)
+      );
+    });
+
+    if (currentRow.components.length > 0) rows.push(currentRow);
+
+    await interaction.channel.send({ embeds: [embed], components: rows });
+
+    return interaction.reply({ content: "Reaction roles created.", ephemeral: true });
+  }
+}
+
 
     // /guessit start/end
     if (name === "guessit") {
