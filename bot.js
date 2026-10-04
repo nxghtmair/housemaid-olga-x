@@ -74,7 +74,7 @@ const ROASTS = [
 ];
 
 // TEMP STORAGE FOR RR SETUP
-client.tempRR = {}; // key: userId -> { roles: [roleId], channelId, description }
+client.tempRR = {}; // userId -> { roles: [roleId], channelId, description }
 
 function ensureDataFolder() {
   if (!fs.existsSync("./data")) fs.mkdirSync("./data");
@@ -606,6 +606,20 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
+  // SELECT MENUS (RR role select)
+  if (interaction.isAnySelectMenu()) {
+    if (interaction.customId === "rr_role_select") {
+      const temp = client.tempRR[interaction.user.id];
+      if (!temp) {
+        client.tempRR[interaction.user.id] = { description: "", roles: [], channelId: interaction.channel.id };
+      }
+      client.tempRR[interaction.user.id].roles = interaction.values;
+      client.tempRR[interaction.user.id].channelId = interaction.channel.id;
+
+      return interaction.reply({ content: `Selected ${interaction.values.length} role(s) for reaction roles.`, ephemeral: true });
+    }
+  }
+
   // MODALS
   if (interaction.isModalSubmit()) {
     // embed create
@@ -768,14 +782,9 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: "No description stored. Try /rr create again.", ephemeral: true });
       }
 
-      const roleSelectComponent = interaction.message.components[0].components[0];
-      const selectedRoles = roleSelectComponent.values;
-      if (!selectedRoles || selectedRoles.length === 0) {
-        return interaction.reply({ content: "Select at least one role.", ephemeral: true });
+      if (!temp.roles || temp.roles.length === 0) {
+        return interaction.reply({ content: "Select at least one role in the dropdown first.", ephemeral: true });
       }
-
-      temp.roles = selectedRoles;
-      client.tempRR[interaction.user.id] = temp;
 
       const emojisModal = new ModalBuilder()
         .setCustomId("rr_emojis_modal")
@@ -785,7 +794,7 @@ client.on("interactionCreate", async (interaction) => {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId("emojis")
-            .setLabel(`Enter ${selectedRoles.length} emojis separated by commas`)
+            .setLabel(`Enter ${temp.roles.length} emojis separated by commas`)
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(true)
         )
