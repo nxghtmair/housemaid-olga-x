@@ -13,7 +13,6 @@ const {
   ButtonStyle
 } = require("discord.js");
 const fs = require("fs");
-const fetch = require("node-fetch");
 require("dotenv").config();
 
 const client = new Client({
