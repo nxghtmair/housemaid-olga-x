@@ -11,7 +11,7 @@ const {
   PermissionFlagsBits,
   ButtonBuilder,
   ButtonStyle,
-  RoleSelectMenuBuilder
+  StringSelectMenuBuilder
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -607,7 +607,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // SELECT MENUS (RR role select)
-  if (interaction.isAnySelectMenu()) {
+  if (interaction.isStringSelectMenu()) {
     if (interaction.customId === "rr_role_select") {
       const temp = client.tempRR[interaction.user.id];
       if (!temp) {
@@ -664,11 +664,21 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.customId === "rr_description_modal") {
       const description = interaction.fields.getTextInputValue("description");
 
-      const roleSelect = new RoleSelectMenuBuilder()
+      const roles = interaction.guild.roles.cache
+        .filter(r => !r.managed)
+        .sort((a, b) => b.position - a.position)
+        .map(r => ({
+          label: r.name,
+          value: r.id
+        }))
+        .slice(0, 25); // Discord limit
+
+      const roleSelect = new StringSelectMenuBuilder()
         .setCustomId("rr_role_select")
         .setPlaceholder("Select up to 9 roles")
         .setMinValues(1)
-        .setMaxValues(9);
+        .setMaxValues(Math.min(9, roles.length))
+        .addOptions(roles);
 
       const row = new ActionRowBuilder().addComponents(roleSelect);
 
